@@ -172,36 +172,10 @@ generate_funnel_limits <- function(metrics, conf_levels) {
 #' @rdname benchmark_survival
 #' @keywords internal
 create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels) {
-  #-----------------------------
-  # 1) Convert funnel limits into a long data frame
-  #    so we can map color/linetype to each confidence level
-  #-----------------------------
-  line_list <- list()
-  for (conf in conf_levels) {
-    conf_label <- paste0(conf * 100, "%")
-
-    upper_df <- tibble::tibble(
-      precision = limits$precision,
-      SSR       = limits[[paste0("upper_", conf)]],
-      conf      = conf_label
-    )
-    lower_df <- tibble::tibble(
-      precision = limits$precision,
-      SSR       = limits[[paste0("lower_", conf)]],
-      conf      = conf_label
-    )
-    line_list[[conf_label]] <- dplyr::bind_rows(upper_df, lower_df)
-  }
-  funnel_lines <- dplyr::bind_rows(line_list)
-
   # Define color and linetype mappings for confidence levels
-  # Adjust these mappings if you have more than two conf_levels.
   color_map <- c("80%" = "blue", "95%" = "red")
   linetype_map <- c("80%" = "dashed", "95%" = "dotted")
 
-  #-----------------------------
-  # 2) Build the ggplot
-  #-----------------------------
   gg <- ggplot() +
     # Plot centers as points with fill = center (shape = 21 allows separate fill and outline)
     geom_point(
@@ -214,12 +188,6 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels) {
     ) +
     # Horizontal reference line
     geom_hline(yintercept = 1, color = "grey50", linetype = 2) +
-    # Plot confidence lines
-    geom_line(
-      data = funnel_lines,
-      aes(x = precision, y = SSR, color = conf, linetype = conf),
-      size = 1
-    ) +
     theme_minimal(base_size = 14) +
     labs(
       title  = "Survival Outcomes Benchmarking",
@@ -233,18 +201,47 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels) {
     ggplot2::scale_color_manual(values = color_map, drop = FALSE) +
     scale_linetype_manual(values = linetype_map, drop = FALSE) +
     coord_cartesian(ylim = c(0, NA)) +
-    theme(legend.position = c(0.99, 0.5))  # right-center position
+    theme(legend.position = "bottom")
 
-  #-----------------------------
-  # 3) Highlight a center if specified
-  #-----------------------------
+  # Plot the upper and lower lines for each confidence level in separate geoms
+  for (conf in conf_levels) {
+    conf_label <- paste0(conf * 100, "%")
+
+    # Extract upper and lower lines for this conf
+    upper_df <- tibble::tibble(
+      precision = limits$precision,
+      SSR       = limits[[paste0("upper_", conf)]],
+      conf      = conf_label
+    )
+    lower_df <- tibble::tibble(
+      precision = limits$precision,
+      SSR       = limits[[paste0("lower_", conf)]],
+      conf      = conf_label
+    )
+
+    # Plot upper line
+    gg <- gg + geom_line(
+      data = upper_df,
+      aes(x = precision, y = SSR, color = conf, linetype = conf),
+      size = 1
+    )
+
+    # Plot lower line
+    gg <- gg + geom_line(
+      data = lower_df,
+      aes(x = precision, y = SSR, color = conf, linetype = conf),
+      size = 1
+    )
+  }
+
+  # Highlight a center if specified
   if (!is.null(highlight)) {
     gg <- gg +
       geom_point(
         data = dplyr::filter(metrics, center == highlight),
         aes(x = precision, y = SSR),
         shape = 21,
-        fill = "yellow",
+        fill = "red",
         color = "black",
         size = 5,
         stroke = 1.3,
