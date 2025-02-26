@@ -197,41 +197,36 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels) {
       color  = "Confidence",   # legend title for confidence lines
       linetype = "Confidence"
     ) +
-    # Apply discrete color/fill scales for centers
     ggplot2::scale_fill_discrete() +
     ggplot2::scale_color_manual(values = color_map, drop = FALSE) +
     scale_linetype_manual(values = linetype_map, drop = FALSE) +
-    # Y-axis from 0 to max
     coord_cartesian(ylim = c(0, NA)) +
-    # Place legend in top-right corner
-    theme(
-      legend.position = c(1, 1),        # top-right corner
-      legend.justification = c(1, 1)    # anchor the legend at that corner
-    )
+    theme(legend.position = "bottom")
 
   # Plot the upper and lower lines for each confidence level in separate geoms
   for (conf in conf_levels) {
     conf_label <- paste0(conf * 100, "%")
 
-    # Upper line
+    # Extract upper and lower lines for this conf
     upper_df <- tibble::tibble(
       precision = limits$precision,
       SSR       = limits[[paste0("upper_", conf)]],
       conf      = conf_label
     )
-
-    # Lower line
     lower_df <- tibble::tibble(
       precision = limits$precision,
       SSR       = limits[[paste0("lower_", conf)]],
       conf      = conf_label
     )
 
+    # Plot upper line
     gg <- gg + geom_line(
       data = upper_df,
       aes(x = precision, y = SSR, color = conf, linetype = conf),
       size = 1
     )
+
+    # Plot lower line
     gg <- gg + geom_line(
       data = lower_df,
       aes(x = precision, y = SSR, color = conf, linetype = conf),
@@ -246,7 +241,7 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels) {
         data = dplyr::filter(metrics, center == highlight),
         aes(x = precision, y = SSR),
         shape = 21,
-        fill = "yellow",
+        fill = "red",
         color = "black",
         size = 5,
         stroke = 1.3,
@@ -256,8 +251,6 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels) {
 
   gg
 }
-
-
 
 # Global variable declarations to avoid R CMD check notes
 utils::globalVariables(c(
