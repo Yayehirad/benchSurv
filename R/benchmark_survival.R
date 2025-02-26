@@ -31,8 +31,7 @@
 #' plot <- benchmark_survival(data, "SiteShortName", "Death", "DTime", "Age", 36, "SiteA")
 benchmark_survival <- function(data, center_col, status_col, time_col, age_col, fixed_time,
                                highlight_center = NULL, conf_levels = c(0.8, 0.95)) {
-  # Data validation
-  if (!is.data.frame(data)) stop("data must be a data frame")
+  if (!is.data.frame(data)) stop("data must be a data frame") # Data validation
   if (!is.numeric(fixed_time) || fixed_time <= 0) stop("fixed_time must be positive numeric")
 
   # Processing pipeline
@@ -97,18 +96,18 @@ compute_expected_survival <- function(data, cox_model, fixed_time) {
 #' @rdname benchmark_survival
 #' @keywords internal
 compute_observed_survival <- function(data, fixed_time) {
-  # Using dplyr::group_modify to compute observed survival per center
   data %>%
     group_by(center) %>%
     group_modify(~ {
-      # Extend the survival curve so it covers fixed_time even if not observed
-      fit <- survival::survfit(Surv(time, status) ~ 1, data = .x, extend = TRUE)
+      # Extend the survival curve so it covers fixed_time even if there are no events after the last observation
+      fit <- survival::survfit(Surv(time, status) ~ 1, data = .x)
       idx <- findInterval(fixed_time, fit$time)
       S_obs <- if (idx == 0) 1 else fit$surv[idx]
       tibble::tibble(S_obs = S_obs)
     }) %>%
     ungroup()
 }
+
 
 #' @rdname benchmark_survival
 #' @keywords internal
