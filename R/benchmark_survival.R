@@ -258,6 +258,7 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels) {
 }
 
 
+
 # Global variable declarations to avoid R CMD check notes
 utils::globalVariables(c(
   ".", "center", "status", "time", "age", "S_i", "n_patients",
