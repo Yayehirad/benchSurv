@@ -65,7 +65,7 @@ Performs survival benchmarking across centers using standardized survival ratios
 \examples{
 set.seed(123)
 data <- data.frame(
-  SiteShortName = rep(c("SiteA", "SiteB","SiteC","SiteD","SiteE"), each = 100),
+  SiteShortName = rep(c("SiteA", "SiteB", "SiteC", "SiteD", "SiteE"), each = 100),
   Death = sample(c(0, 1), 100, replace = TRUE),
   DTime = sample(10:100, 100, replace = TRUE),
   Age = sample(30:80, 100, replace = TRUE)

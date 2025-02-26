@@ -23,7 +23,7 @@
 #' @examples
 #' set.seed(123)
 #' data <- data.frame(
-#'   SiteShortName = rep(c("SiteA", "SiteB","SiteC","SiteD","SiteE"), each = 100),
+#'   SiteShortName = rep(c("SiteA", "SiteB", "SiteC", "SiteD", "SiteE"), each = 100),
 #'   Death = sample(c(0, 1), 100, replace = TRUE),
 #'   DTime = sample(10:100, 100, replace = TRUE),
 #'   Age = sample(30:80, 100, replace = TRUE)
@@ -101,7 +101,8 @@ compute_observed_survival <- function(data, fixed_time) {
   data %>%
     group_by(center) %>%
     group_modify(~ {
-      fit <- survival::survfit(Surv(time, status) ~ 1, data = .x)
+      # Extend the survival curve so it covers fixed_time even if not observed
+      fit <- survival::survfit(Surv(time, status) ~ 1, data = .x, extend = TRUE)
       idx <- findInterval(fixed_time, fit$time)
       S_obs <- if (idx == 0) 1 else fit$surv[idx]
       tibble::tibble(S_obs = S_obs)
@@ -186,7 +187,7 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels) {
   # Set the label for the color scale
   lab_color <- if (is.null(highlight)) "Center" else NULL
 
-  # Base plot
+  # Base plot (using ASCII for superscript)
   gg <- ggplot(metrics, aes(precision, SSR)) +
     geom_hline(yintercept = 1, color = "grey50", linetype = 2) +
     theme_minimal(base_size = 14) +
