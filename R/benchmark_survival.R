@@ -233,7 +233,7 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels) {
     ggplot2::scale_color_manual(values = color_map, drop = FALSE) +
     scale_linetype_manual(values = linetype_map, drop = FALSE) +
     coord_cartesian(ylim = c(0, NA)) +
-    theme(legend.position = "bottom")
+    theme(legend.position = c(0.99, 0.5))  # right-center position
 
   #-----------------------------
   # 3) Highlight a center if specified
