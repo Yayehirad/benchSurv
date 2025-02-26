@@ -1,0 +1,19 @@
+Encoding: UTF-8
+Package: benchSurv
+Title: Survival Benchmarking Analysis
+Version: 0.1.0
+Authors@R: person(given = "Yayehirad", family = "Melsew", email = "078yayu@gmail.com", role = c("aut", "cre"))
+Description: Performs standardized survival ratio analysis with funnel plot visualization.
+License: MIT + file LICENSE
+Depends: R (>= 3.5.0)
+Imports: 
+    survival,
+    ggplot2,
+    dplyr,
+    colorspace,
+    tibble,
+    rlang,
+    stats,
+    utils
+RoxygenNote: 7.3.2
+
