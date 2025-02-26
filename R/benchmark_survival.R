@@ -12,9 +12,9 @@
 #' @param conf_levels Confidence levels for funnel plot limits.
 #' @return A ggplot object representing the funnel plot.
 #' @export
-#' @importFrom dplyr %>% mutate group_by summarise left_join filter rename group_modify ungroup n
+#' @importFrom dplyr %>% mutate group_by summarise left_join filter rename group_modify ungroup n bind_rows
 #' @importFrom survival coxph basehaz survfit Surv
-#' @importFrom ggplot2 ggplot geom_point geom_line labs scale_color_manual theme_minimal coord_cartesian geom_hline scale_linetype_manual aes theme
+#' @importFrom ggplot2 ggplot geom_point geom_line labs scale_color_manual theme_minimal coord_cartesian geom_hline scale_linetype_manual aes theme scale_fill_discrete
 #' @importFrom colorspace rainbow_hcl
 #' @importFrom stats coef qnorm setNames
 #' @importFrom utils tail globalVariables
@@ -108,7 +108,6 @@ compute_observed_survival <- function(data, fixed_time) {
     ungroup()
 }
 
-
 #' @rdname benchmark_survival
 #' @keywords internal
 summarize_centers <- function(data, expected_survival, observed_survival) {
@@ -173,70 +172,87 @@ generate_funnel_limits <- function(metrics, conf_levels) {
 #' @rdname benchmark_survival
 #' @keywords internal
 create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels) {
-  # Color handling
-  centers <- unique(metrics$center)
-  n_centers <- length(centers)
+  #-----------------------------
+  # 1) Convert funnel limits into a long data frame
+  #    so we can map color/linetype to each confidence level
+  #-----------------------------
+  line_list <- list()
+  for (conf in conf_levels) {
+    conf_label <- paste0(conf * 100, "%")
 
-  color_scale <- if (!is.null(highlight)) {
-    c("Highlight" = "#E41A1C", "Other" = "#377EB8")
-  } else {
-    setNames(rainbow_hcl(n_centers), centers)
+    upper_df <- tibble::tibble(
+      precision = limits$precision,
+      SSR       = limits[[paste0("upper_", conf)]],
+      conf      = conf_label
+    )
+    lower_df <- tibble::tibble(
+      precision = limits$precision,
+      SSR       = limits[[paste0("lower_", conf)]],
+      conf      = conf_label
+    )
+    line_list[[conf_label]] <- dplyr::bind_rows(upper_df, lower_df)
   }
+  funnel_lines <- dplyr::bind_rows(line_list)
 
-  # Set the label for the color scale
-  lab_color <- if (is.null(highlight)) "Center" else NULL
+  # Define color and linetype mappings for confidence levels
+  # Adjust these mappings if you have more than two conf_levels.
+  color_map <- c("80%" = "blue", "95%" = "red")
+  linetype_map <- c("80%" = "dashed", "95%" = "dotted")
 
-  # Base plot (using ASCII for superscript)
-  gg <- ggplot(metrics, aes(precision, SSR)) +
+  #-----------------------------
+  # 2) Build the ggplot
+  #-----------------------------
+  gg <- ggplot() +
+    # Plot centers as points with fill = center (shape = 21 allows separate fill and outline)
+    geom_point(
+      data = metrics,
+      aes(x = precision, y = SSR, fill = center),
+      shape = 21,
+      color = "black",
+      size = 3,
+      alpha = 0.7
+    ) +
+    # Horizontal reference line
     geom_hline(yintercept = 1, color = "grey50", linetype = 2) +
+    # Plot confidence lines
+    geom_line(
+      data = funnel_lines,
+      aes(x = precision, y = SSR, color = conf, linetype = conf),
+      size = 1
+    ) +
     theme_minimal(base_size = 14) +
     labs(
-      title = "Survival Outcomes Benchmarking",
-      x = "Precision (E^2/V)",
-      y = "Standardized Survival Ratio",
-      color = lab_color
-    )
+      title  = "Survival Outcomes Benchmarking",
+      x      = "Precision (E^2/V)",
+      y      = "Standardized Survival Ratio",
+      fill   = "Center",       # legend title for center fills
+      color  = "Confidence",   # legend title for confidence lines
+      linetype = "Confidence"
+    ) +
+    ggplot2::scale_fill_discrete() +
+    ggplot2::scale_color_manual(values = color_map, drop = FALSE) +
+    scale_linetype_manual(values = linetype_map, drop = FALSE) +
+    coord_cartesian(ylim = c(0, NA)) +
+    theme(legend.position = "bottom")
 
-  # Add confidence bands
-  for (conf in conf_levels) {
-    gg <- gg +
-      geom_line(
-        data = limits,
-        aes(x = precision, y = .data[[paste0("upper_", conf)]],
-            linetype = paste0(conf * 100, "%")),
-        color = "grey30"
-      ) +
-      geom_line(
-        data = limits,
-        aes(x = precision, y = .data[[paste0("lower_", conf)]],
-            linetype = paste0(conf * 100, "%")),
-        color = "grey30"
-      )
-  }
-
-  # Add points with highlighting
+  #-----------------------------
+  # 3) Highlight a center if specified
+  #-----------------------------
   if (!is.null(highlight)) {
     gg <- gg +
       geom_point(
-        data = dplyr::filter(metrics, center != highlight),
-        aes(color = "Other"),
-        size = 3, alpha = 0.7
-      ) +
-      geom_point(
         data = dplyr::filter(metrics, center == highlight),
-        aes(color = "Highlight"),
-        size = 4, show.legend = FALSE
+        aes(x = precision, y = SSR),
+        shape = 21,
+        fill = "yellow",
+        color = "black",
+        size = 5,
+        stroke = 1.3,
+        show.legend = FALSE
       )
-  } else {
-    gg <- gg + geom_point(aes(color = center), size = 3, alpha = 0.7)
   }
 
-  # Final styling
-  gg +
-    scale_color_manual(values = color_scale) +
-    scale_linetype_manual("Confidence", values = c("dashed", "dotted")) +
-    coord_cartesian(ylim = c(0, NA)) +
-    ggplot2::theme(legend.position = "bottom")
+  gg
 }
 
 # Global variable declarations to avoid R CMD check notes
