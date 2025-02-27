@@ -2,6 +2,9 @@
 % Please edit documentation in R/benchmark_survival.R
 \name{benchmark_survival}
 \alias{benchmark_survival}
+\alias{prepare_data}
+\alias{fit_cox_model}
+\alias{compute_expected_survival}
 \title{Benchmark Survival Analysis}
 \usage{
 benchmark_survival(
@@ -9,11 +12,17 @@ benchmark_survival(
   center_col,
   status_col,
   time_col,
-  age_col,
   fixed_time,
   highlight_center = NULL,
-  conf_levels = c(0.8, 0.95)
+  conf_levels = c(0.8, 0.95),
+  covariates = NULL
 )
+
+prepare_data(data, center_col, status_col, time_col, covariates)
+
+fit_cox_model(data, covariates)
+
+compute_expected_survival(data, cox_model, fixed_time, covariates)
 }
 \arguments{
 \item{data}{A data frame containing survival data.}
@@ -24,13 +33,13 @@ benchmark_survival(
 
 \item{time_col}{Name of the column with survival times.}
 
-\item{age_col}{Name of the column with age data.}
-
 \item{fixed_time}{Time point for survival analysis (e.g., 36 for 3 years).}
 
 \item{highlight_center}{Optional center to highlight in the plot.}
 
 \item{conf_levels}{Confidence levels for funnel plot limits.}
+
+\item{age_col}{Name of the column with age data.}
 }
 \value{
 A ggplot object representing the funnel plot.
@@ -38,13 +47,4 @@ A ggplot object representing the funnel plot.
 \description{
 Performs survival benchmarking across centers using standardized survival ratios and funnel plots.
 }
-\examples{
-set.seed(123)
-data <- data.frame(
-  SiteShortName = rep(c("SiteA", "SiteB", "SiteC", "SiteD", "SiteE"), each = 100),
-  Death = sample(c(0, 1), 100, replace = TRUE),
-  DTime = sample(10:100, 100, replace = TRUE),
-  Age = sample(30:80, 100, replace = TRUE)
-)
-plot <- benchmark_survival(data, "SiteShortName", "Death", "DTime", "Age", 36, "SiteA")
-}
+\keyword{internal}

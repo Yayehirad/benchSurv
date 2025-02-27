@@ -20,63 +20,57 @@
 #' @importFrom utils tail globalVariables
 #' @importFrom rlang sym .data
 #' @importFrom tibble tibble
-#' @examples
-#' set.seed(123)
-#' data <- data.frame(
-#'   SiteShortName = rep(c("SiteA", "SiteB", "SiteC", "SiteD", "SiteE"), each = 100),
-#'   Death = sample(c(0, 1), 100, replace = TRUE),
-#'   DTime = sample(10:100, 100, replace = TRUE),
-#'   Age = sample(30:80, 100, replace = TRUE)
-#' )
-#' plot <- benchmark_survival(data, "SiteShortName", "Death", "DTime", "Age", 36, "SiteA")
-benchmark_survival <- function(data, center_col, status_col, time_col, age_col, fixed_time,
-                               highlight_center = NULL, conf_levels = c(0.8, 0.95)) {
+
+
+benchmark_survival <- function(data, center_col, status_col, time_col, fixed_time,
+                               highlight_center = NULL, conf_levels = c(0.8, 0.95), covariates = NULL) {
   if (!is.data.frame(data)) stop("data must be a data frame")
   if (!is.numeric(fixed_time) || fixed_time <= 0) stop("fixed_time must be positive numeric")
 
   # Processing pipeline
-  prepared_data <- prepare_data(data, center_col, status_col, time_col, age_col)
-  cox_model <- fit_cox_model(prepared_data)
+  prepared_data <- prepare_data(data, center_col, status_col, time_col, covariates)
+  cox_model <- fit_cox_model(prepared_data, covariates)
 
-  # Proportional Hazards Assumption Check
+  # Proportional Hazards (PH) Assumption Check
   ph_test <- survival::cox.zph(cox_model)
   message("\nProportional Hazards (PH) Assumption Test:")
   print(ph_test)
-  if (all(ph_test$table[, "p"] > 0.05)) {
+
+  if (all(ph_test$table[, 3] > 0.05)) {
     message("✅ The Proportional Hazards (PH) assumption is fulfilled.")
   } else {
-    warning("⚠️ PH assumption may be violated. Consider using time-dependent covariates.")
+    warning("⚠️ PH assumption may be violated. Consider using time-dependent covariates or stratification.")
+    message("Covariates violating PH assumption: ",
+            paste(rownames(ph_test$table)[ph_test$table[, 3] <= 0.05], collapse = ", "))
   }
+
+
+  expected_survival <- compute_expected_survival(prepared_data, cox_model, fixed_time, covariates)
+  observed_survival <- compute_observed_survival(prepared_data, fixed_time)
+  center_summary <- summarize_centers(prepared_data, expected_survival, observed_survival)
+  metrics <- compute_metrics(center_summary)
+  funnel_limits <- generate_funnel_limits(metrics, conf_levels)
+  plot <- create_funnel_plot(metrics, funnel_limits, highlight_center, conf_levels)
 
   # Model Fit Assessment
   cox_fit_summary <- summary(cox_model)
   message("\nModel Fit Assessment:")
-  message("✔️ Concordance Index (C-statistic): ", round(cox_fit_summary$concordance["C"], 3))
-  message("✔️ Likelihood Ratio Test p-value: ", format.pval(cox_fit_summary$logtest["pvalue"]))
-
-  expected_survival <- compute_expected_survival(prepared_data, cox_model, fixed_time)
-  observed_survival <- compute_observed_survival(prepared_data, fixed_time)
-  center_summary <- summarize_centers(prepared_data, expected_survival, observed_survival)
-  metrics <- compute_metrics(center_summary)
-
-  # Small sample warnings
-  small_centers <- metrics %>% filter(E_S < 5 | V_S < 2.5)
-  if (nrow(small_centers) > 0) {  # Added closing ) and > 0 comparison
-    warning("Small centers detected (E_S <5 or V_S <2.5):\n",
-            paste(small_centers$center, collapse = ", "),
-            "\nInterpret results with caution.")
-  }
-
-  funnel_limits <- generate_funnel_limits(metrics, conf_levels)
-  plot <- create_funnel_plot(metrics, funnel_limits, highlight_center, conf_levels)
+  message("✔️ Concordance Index (C-statistic):")
+  print(cox_fit_summary$concordance)
+  message("✔️ Likelihood Ratio Test:")
+  print(cox_fit_summary$logtest)
+  message("✔️ Wald Test:")
+  print(cox_fit_summary$waldtest)
+  message("✔️ Score (Log-Rank) Test:")
+  print(cox_fit_summary$sctest)
 
   return(plot)
 }
 
-# Internal utility functions --------------------------------------------------
-
-prepare_data <- function(data, center_col, status_col, time_col, age_col) {
-  required_cols <- c(center_col, status_col, time_col, age_col)
+#' @rdname benchmark_survival
+#' @keywords internal
+prepare_data <- function(data, center_col, status_col, time_col, covariates) {
+  required_cols <- c(center_col, status_col, time_col, covariates)
   missing_cols <- setdiff(required_cols, names(data))
   if (length(missing_cols) > 0) stop("Missing columns: ", paste(missing_cols, collapse = ", "))
 
@@ -84,33 +78,36 @@ prepare_data <- function(data, center_col, status_col, time_col, age_col) {
     rename(
       center = !!sym(center_col),
       status = !!sym(status_col),
-      time   = !!sym(time_col),
-      age    = !!sym(age_col)
+      time   = !!sym(time_col)
     ) %>%
     mutate(
-      age = as.numeric(age),
       status = as.integer(status),
       time = as.numeric(time)
     ) %>%
     filter(
-      !is.na(age),
       !is.na(time),
       !is.na(status),
       time > 0
     )
 }
 
-fit_cox_model <- function(data) {
-  survival::coxph(Surv(time, status) ~ age, data = data)
+#' @rdname benchmark_survival
+#' @keywords internal
+fit_cox_model <- function(data, covariates) {
+  formula <- as.formula(paste("Surv(time, status) ~", paste(covariates, collapse = " + ")))
+  survival::coxph(formula, data = data)
 }
 
-compute_expected_survival <- function(data, cox_model, fixed_time) {
+#' @rdname benchmark_survival
+#' @keywords internal
+compute_expected_survival <- function(data, cox_model, fixed_time, covariates) {
   bh <- survival::basehaz(cox_model, centered = FALSE)
   H_fixed <- max(bh$hazard[bh$time <= fixed_time], 0)
 
+  lp <- rowSums(sapply(covariates, function(var) coef(cox_model)[var] * data[[var]]))
+
   data %>%
     mutate(
-      lp = coef(cox_model)["age"] * age,
       S_i = exp(-H_fixed * exp(lp))
     )
 }
@@ -262,3 +259,4 @@ utils::globalVariables(c(
   ".", "center", "status", "time", "age", "S_i", "n_patients",
   "E_S", "V_S", "O_S", "SSR", "Z", "precision", "lp", "S_obs"
 ))
+
