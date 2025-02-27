@@ -2,15 +2,11 @@
 % Please edit documentation in R/benchmark_survival.R
 \name{benchmark_survival}
 \alias{benchmark_survival}
-\alias{prepare_data}
 \alias{fit_cox_model}
 \alias{compute_expected_survival}
-\alias{compute_observed_survival}
-\alias{summarize_centers}
-\alias{compute_metrics}
-\alias{generate_funnel_limits}
-\alias{create_funnel_plot}
-\title{Benchmark Survival Analysis}
+\alias{generate_funnel_limits_poisson}
+\alias{simulate_benchmark}
+\title{Benchmark Survival Analysis (Refined Version)}
 \usage{
 benchmark_survival(
   data,
@@ -23,21 +19,18 @@ benchmark_survival(
   conf_levels = c(0.8, 0.95)
 )
 
-prepare_data(data, center_col, status_col, time_col, age_col)
-
 fit_cox_model(data)
 
 compute_expected_survival(data, cox_model, fixed_time)
 
-compute_observed_survival(data, fixed_time)
+generate_funnel_limits_poisson(metrics, conf_levels)
 
-summarize_centers(data, expected_survival, observed_survival)
-
-compute_metrics(center_summary)
-
-generate_funnel_limits(metrics, conf_levels)
-
-create_funnel_plot(metrics, limits, highlight = NULL, conf_levels)
+simulate_benchmark(
+  n_sim = 1000,
+  n_centers = 20,
+  min_patients = 50,
+  max_patients = 500
+)
 }
 \arguments{
 \item{data}{A data frame containing survival data.}
@@ -61,15 +54,5 @@ A ggplot object representing the funnel plot.
 }
 \description{
 Performs survival benchmarking across centers using standardized survival ratios and funnel plots.
-}
-\examples{
-set.seed(123)
-data <- data.frame(
-  SiteShortName = rep(c("SiteA", "SiteB", "SiteC", "SiteD", "SiteE"), each = 100),
-  Death = sample(c(0, 1), 100, replace = TRUE),
-  DTime = sample(10:100, 100, replace = TRUE),
-  Age = sample(30:80, 100, replace = TRUE)
-)
-plot <- benchmark_survival(data, "SiteShortName", "Death", "DTime", "Age", 36, "SiteA")
 }
 \keyword{internal}
