@@ -2,11 +2,7 @@
 % Please edit documentation in R/benchmark_survival.R
 \name{benchmark_survival}
 \alias{benchmark_survival}
-\alias{fit_cox_model}
-\alias{compute_expected_survival}
-\alias{generate_funnel_limits_poisson}
-\alias{simulate_benchmark}
-\title{Benchmark Survival Analysis (Refined Version)}
+\title{Benchmark Survival Analysis}
 \usage{
 benchmark_survival(
   data,
@@ -17,19 +13,6 @@ benchmark_survival(
   fixed_time,
   highlight_center = NULL,
   conf_levels = c(0.8, 0.95)
-)
-
-fit_cox_model(data)
-
-compute_expected_survival(data, cox_model, fixed_time)
-
-generate_funnel_limits_poisson(metrics, conf_levels)
-
-simulate_benchmark(
-  n_sim = 1000,
-  n_centers = 20,
-  min_patients = 50,
-  max_patients = 500
 )
 }
 \arguments{
@@ -55,4 +38,13 @@ A ggplot object representing the funnel plot.
 \description{
 Performs survival benchmarking across centers using standardized survival ratios and funnel plots.
 }
-\keyword{internal}
+\examples{
+set.seed(123)
+data <- data.frame(
+  SiteShortName = rep(c("SiteA", "SiteB", "SiteC", "SiteD", "SiteE"), each = 100),
+  Death = sample(c(0, 1), 100, replace = TRUE),
+  DTime = sample(10:100, 100, replace = TRUE),
+  Age = sample(30:80, 100, replace = TRUE)
+)
+plot <- benchmark_survival(data, "SiteShortName", "Death", "DTime", "Age", 36, "SiteA")
+}
