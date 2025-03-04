@@ -15,7 +15,8 @@ benchmark_survival(
   fixed_time,
   highlight_center = NULL,
   conf_levels = c(0.8, 0.95),
-  covariates = NULL
+  covariates = NULL,
+  include_legend = TRUE
 )
 
 prepare_data(data, center_col, status_col, time_col, covariates)
