@@ -173,7 +173,7 @@ generate_funnel_limits <- function(metrics, conf_levels) {
   limits
 }
 
-create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels) {
+create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, include_legend = TRUE) {
   # Define color and linetype mappings for confidence levels
   color_map <- c("80%" = "blue", "95%" = "red")
   linetype_map <- c("80%" = "dashed", "95%" = "dotted")
@@ -189,28 +189,29 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels) {
       size = 3,
       alpha = 0.7
     ) +
-    # Horizontal reference line
+    # Horizontal reference line at SSR=1
     geom_hline(yintercept = 1, color = "grey50", linetype = 2) +
     theme_minimal(base_size = 14) +
     labs(
       title  = "Survival Outcomes Benchmarking",
       x      = "Precision (E^2/V)",
-      y      = "Standardized Survival Ratio",
-      fill   = "Center",       # legend title for center fills
-      color  = "Confidence",   # legend title for confidence lines
+      y      = "Standardized Survival Ratio (O/E)",
+      fill   = "Center",
+      color  = "Confidence",
       linetype = "Confidence"
     ) +
     ggplot2::scale_fill_discrete() +
     ggplot2::scale_color_manual(values = color_map, drop = FALSE) +
     scale_linetype_manual(values = linetype_map, drop = FALSE) +
     coord_cartesian(ylim = c(y_min, NA)) +
-    theme(legend.position = "bottom")
+    theme(legend.position = if (include_legend) "right" else "none",
+          legend.justification = c(1, 1),
+          legend.box = "vertical")
 
-  # Plot the upper and lower lines for each confidence level in separate geoms
+  # Plot upper and lower funnel lines for each confidence level
   for (conf in conf_levels) {
     conf_label <- paste0(conf * 100, "%")
 
-    # Extract upper and lower lines for this conf
     upper_df <- tibble::tibble(
       precision = limits$precision,
       SSR       = limits[[paste0("upper_", conf)]],
@@ -222,26 +223,24 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels) {
       conf      = conf_label
     )
 
-    # Plot upper line
     gg <- gg + geom_line(
       data = upper_df,
       aes(x = precision, y = SSR, color = conf, linetype = conf),
       size = 1
-    )
-
-    # Plot lower line
-    gg <- gg + geom_line(
-      data = lower_df,
-      aes(x = precision, y = SSR, color = conf, linetype = conf),
-      size = 1
-    )
+    ) +
+      geom_line(
+        data = lower_df,
+        aes(x = precision, y = SSR, color = conf, linetype = conf),
+        size = 1
+      )
   }
 
-  # Highlight a center if specified
+  # Highlight and label a center if specified
   if (!is.null(highlight)) {
+    highlighted_data <- dplyr::filter(metrics, center == highlight)
     gg <- gg +
       geom_point(
-        data = dplyr::filter(metrics, center == highlight),
+        data = highlighted_data,
         aes(x = precision, y = SSR),
         shape = 21,
         fill = "red",
@@ -249,10 +248,18 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels) {
         size = 5,
         stroke = 1.3,
         show.legend = FALSE
+      ) +
+      geom_text(
+        data = highlighted_data,
+        aes(x = precision, y = SSR, label = center),
+        vjust = -1,    # position label above the point
+        color = "red",
+        size = 5,
+        fontface = "bold"
       )
   }
 
-  gg
+  return(gg)
 }
 
 utils::globalVariables(c(
