@@ -23,7 +23,8 @@
 
 
 benchmark_survival <- function(data, center_col, status_col, time_col, fixed_time,
-                               highlight_center = NULL, conf_levels = c(0.8, 0.95), covariates = NULL) {
+                               highlight_center = NULL, conf_levels = c(0.8, 0.95),
+                               covariates = NULL, include_legend = TRUE) {
   if (!is.data.frame(data)) stop("data must be a data frame")
   if (!is.numeric(fixed_time) || fixed_time <= 0) stop("fixed_time must be positive numeric")
 
@@ -44,13 +45,12 @@ benchmark_survival <- function(data, center_col, status_col, time_col, fixed_tim
             paste(rownames(ph_test$table)[ph_test$table[, 3] <= 0.05], collapse = ", "))
   }
 
-
   expected_survival <- compute_expected_survival(prepared_data, cox_model, fixed_time, covariates)
   observed_survival <- compute_observed_survival(prepared_data, fixed_time)
   center_summary <- summarize_centers(prepared_data, expected_survival, observed_survival)
   metrics <- compute_metrics(center_summary)
   funnel_limits <- generate_funnel_limits(metrics, conf_levels)
-  plot <- create_funnel_plot(metrics, funnel_limits, highlight_center, conf_levels)
+  plot <- create_funnel_plot(metrics, funnel_limits, highlight_center, conf_levels, include_legend)
 
   # Model Fit Assessment
   cox_fit_summary <- summary(cox_model)
