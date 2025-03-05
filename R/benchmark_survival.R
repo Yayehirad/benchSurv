@@ -6,10 +6,13 @@
 #' @param center_col Name of the column with center identifiers.
 #' @param status_col Name of the column with event status (0 = censored, 1 = event).
 #' @param time_col Name of the column with survival times.
-#' @param age_col Name of the column with age data.
 #' @param fixed_time Time point for survival analysis (e.g., 36 for 3 years).
+#' @param numeric_covariates Vector of column names for numeric covariates used for risk adjustment.
+#' @param factor_covariates Vector of column names for categorical covariates used for risk adjustment.
+#' @param strata_covariates Optional vector of column names to be used for stratification via strata().
 #' @param highlight_center Optional center to highlight in the plot.
 #' @param conf_levels Confidence levels for funnel plot limits.
+#' @param include_legend Logical; show legend (default TRUE).
 #' @return A ggplot object representing the funnel plot.
 #' @export
 #' @importFrom dplyr %>% mutate group_by summarise left_join filter rename group_modify ungroup n bind_rows
@@ -20,17 +23,24 @@
 #' @importFrom utils tail globalVariables
 #' @importFrom rlang sym .data
 #' @importFrom tibble tibble
-
-
 benchmark_survival <- function(data, center_col, status_col, time_col, fixed_time,
+                               numeric_covariates = NULL, factor_covariates = NULL,
+                               strata_covariates = NULL,
                                highlight_center = NULL, conf_levels = c(0.8, 0.95),
-                               covariates = NULL, include_legend = TRUE) {
+                               include_legend = TRUE) {
   if (!is.data.frame(data)) stop("data must be a data frame")
   if (!is.numeric(fixed_time) || fixed_time <= 0) stop("fixed_time must be positive numeric")
 
-  # Processing pipeline
-  prepared_data <- prepare_data(data, center_col, status_col, time_col, covariates)
-  cox_model <- fit_cox_model(prepared_data, covariates)
+  # Combine risk adjustment covariates
+  all_covariates <- c(numeric_covariates, factor_covariates)
+
+  # Processing pipeline: include strata_covariates in data preparation so we ensure they exist
+  prepared_data <- prepare_data(data, center_col, status_col, time_col,
+                                covariates = all_covariates,
+                                factor_covariates = factor_covariates,
+                                strata_covariates = strata_covariates)
+
+  cox_model <- fit_cox_model(prepared_data, all_covariates, strata_covariates)
 
   # Proportional Hazards (PH) Assumption Check
   ph_test <- survival::cox.zph(cox_model)
@@ -45,7 +55,7 @@ benchmark_survival <- function(data, center_col, status_col, time_col, fixed_tim
             paste(rownames(ph_test$table)[ph_test$table[, 3] <= 0.05], collapse = ", "))
   }
 
-  expected_survival <- compute_expected_survival(prepared_data, cox_model, fixed_time, covariates)
+  expected_survival <- compute_expected_survival(prepared_data, cox_model, fixed_time)
   observed_survival <- compute_observed_survival(prepared_data, fixed_time)
   center_summary <- summarize_centers(prepared_data, expected_survival, observed_survival)
   metrics <- compute_metrics(center_summary)
@@ -69,12 +79,14 @@ benchmark_survival <- function(data, center_col, status_col, time_col, fixed_tim
 
 #' @rdname benchmark_survival
 #' @keywords internal
-prepare_data <- function(data, center_col, status_col, time_col, covariates) {
-  required_cols <- c(center_col, status_col, time_col, covariates)
+prepare_data <- function(data, center_col, status_col, time_col,
+                         covariates, factor_covariates, strata_covariates = NULL) {
+  # Ensure required columns exist: add strata_covariates if provided
+  required_cols <- unique(c(center_col, status_col, time_col, covariates, strata_covariates))
   missing_cols <- setdiff(required_cols, names(data))
   if (length(missing_cols) > 0) stop("Missing columns: ", paste(missing_cols, collapse = ", "))
 
-  data %>%
+  data <- data %>%
     rename(
       center = !!sym(center_col),
       status = !!sym(status_col),
@@ -89,22 +101,53 @@ prepare_data <- function(data, center_col, status_col, time_col, covariates) {
       !is.na(status),
       time > 0
     )
+
+  # Convert specified factor covariates to factors
+  if (!is.null(factor_covariates)) {
+    for (var in factor_covariates) {
+      if (var %in% names(data)) {
+        data[[var]] <- as.factor(data[[var]])
+      }
+    }
+  }
+
+  # Also convert strata_covariates to factors if not already numeric
+  if (!is.null(strata_covariates)) {
+    for (var in strata_covariates) {
+      if (var %in% names(data) && !is.numeric(data[[var]])) {
+        data[[var]] <- as.factor(data[[var]])
+      }
+    }
+  }
+
+  return(data)
 }
 
 #' @rdname benchmark_survival
 #' @keywords internal
-fit_cox_model <- function(data, covariates) {
-  formula <- as.formula(paste("Surv(time, status) ~", paste(covariates, collapse = " + ")))
-  survival::coxph(formula, data = data)
+fit_cox_model <- function(data, covariates, strata_covariates = NULL) {
+  # Build the risk adjustment part of the formula if provided
+  risk_formula <- if (length(covariates) > 0) paste(covariates, collapse = " + ") else "1"
+
+  # Append strata() for any stratification covariates if provided
+  if (!is.null(strata_covariates)) {
+    strata_formula <- paste0("strata(", paste(strata_covariates, collapse = "), strata("), ")")
+    full_formula <- as.formula(paste("Surv(time, status) ~", risk_formula, "+", strata_formula))
+  } else {
+    full_formula <- as.formula(paste("Surv(time, status) ~", risk_formula))
+  }
+
+  survival::coxph(full_formula, data = data)
 }
 
 #' @rdname benchmark_survival
 #' @keywords internal
-compute_expected_survival <- function(data, cox_model, fixed_time, covariates) {
+compute_expected_survival <- function(data, cox_model, fixed_time) {
   bh <- survival::basehaz(cox_model, centered = FALSE)
   H_fixed <- max(bh$hazard[bh$time <= fixed_time], 0)
 
-  lp <- rowSums(sapply(covariates, function(var) coef(cox_model)[var] * data[[var]]))
+  # Use predict() to compute the linear predictor (lp) handling both numeric and factor covariates.
+  lp <- predict(cox_model, newdata = data, type = "lp")
 
   data %>%
     mutate(
@@ -263,7 +306,6 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, i
 }
 
 utils::globalVariables(c(
-  ".", "center", "status", "time", "age", "S_i", "n_patients",
+  ".", "center", "status", "time", "S_i", "n_patients",
   "E_S", "V_S", "O_S", "SSR", "Z", "precision", "lp", "S_obs"
 ))
-

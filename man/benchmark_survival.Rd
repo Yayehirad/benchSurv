@@ -13,17 +13,27 @@ benchmark_survival(
   status_col,
   time_col,
   fixed_time,
+  numeric_covariates = NULL,
+  factor_covariates = NULL,
+  strata_covariates = NULL,
   highlight_center = NULL,
   conf_levels = c(0.8, 0.95),
-  covariates = NULL,
   include_legend = TRUE
 )
 
-prepare_data(data, center_col, status_col, time_col, covariates)
+prepare_data(
+  data,
+  center_col,
+  status_col,
+  time_col,
+  covariates,
+  factor_covariates,
+  strata_covariates = NULL
+)
 
-fit_cox_model(data, covariates)
+fit_cox_model(data, covariates, strata_covariates = NULL)
 
-compute_expected_survival(data, cox_model, fixed_time, covariates)
+compute_expected_survival(data, cox_model, fixed_time)
 }
 \arguments{
 \item{data}{A data frame containing survival data.}
@@ -36,11 +46,17 @@ compute_expected_survival(data, cox_model, fixed_time, covariates)
 
 \item{fixed_time}{Time point for survival analysis (e.g., 36 for 3 years).}
 
+\item{numeric_covariates}{Vector of column names for numeric covariates used for risk adjustment.}
+
+\item{factor_covariates}{Vector of column names for categorical covariates used for risk adjustment.}
+
+\item{strata_covariates}{Optional vector of column names to be used for stratification via strata().}
+
 \item{highlight_center}{Optional center to highlight in the plot.}
 
 \item{conf_levels}{Confidence levels for funnel plot limits.}
 
-\item{age_col}{Name of the column with age data.}
+\item{include_legend}{Logical; show legend (default TRUE).}
 }
 \value{
 A ggplot object representing the funnel plot.
