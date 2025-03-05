@@ -6,10 +6,12 @@
 #' @param center_col Name of the column with center identifiers.
 #' @param status_col Name of the column with event status (0 = censored, 1 = event).
 #' @param time_col Name of the column with survival times.
-#' @param age_col Name of the column with age data.
 #' @param fixed_time Time point for survival analysis (e.g., 36 for 3 years).
+#' @param numeric_covariates Optional vector of column names for numeric covariates used for risk adjustment (e.g., c("Age")).
+#' @param factor_covariates Optional vector of column names for categorical covariates used for risk adjustment (e.g., c("ISS")).
 #' @param highlight_center Optional center to highlight in the plot.
 #' @param conf_levels Confidence levels for funnel plot limits.
+#' @param include_legend Logical; show legend (default TRUE).
 #' @return A ggplot object representing the funnel plot.
 #' @export
 #' @importFrom dplyr %>% mutate group_by summarise left_join filter rename group_modify ungroup n bind_rows
@@ -20,17 +22,16 @@
 #' @importFrom utils tail globalVariables
 #' @importFrom rlang sym .data
 #' @importFrom tibble tibble
-
-
 benchmark_survival <- function(data, center_col, status_col, time_col, fixed_time,
+                               numeric_covariates = NULL, factor_covariates = NULL,
                                highlight_center = NULL, conf_levels = c(0.8, 0.95),
-                               covariates = NULL, include_legend = TRUE) {
+                               include_legend = TRUE) {
   if (!is.data.frame(data)) stop("data must be a data frame")
   if (!is.numeric(fixed_time) || fixed_time <= 0) stop("fixed_time must be positive numeric")
 
   # Processing pipeline
-  prepared_data <- prepare_data(data, center_col, status_col, time_col, covariates)
-  cox_model <- fit_cox_model(prepared_data, covariates)
+  prepared_data <- prepare_data(data, center_col, status_col, time_col, numeric_covariates, factor_covariates)
+  cox_model <- fit_cox_model(prepared_data, numeric_covariates, factor_covariates)
 
   # Proportional Hazards (PH) Assumption Check
   ph_test <- survival::cox.zph(cox_model)
@@ -45,7 +46,7 @@ benchmark_survival <- function(data, center_col, status_col, time_col, fixed_tim
             paste(rownames(ph_test$table)[ph_test$table[, 3] <= 0.05], collapse = ", "))
   }
 
-  expected_survival <- compute_expected_survival(prepared_data, cox_model, fixed_time, covariates)
+  expected_survival <- compute_expected_survival(prepared_data, cox_model, fixed_time, numeric_covariates, factor_covariates)
   observed_survival <- compute_observed_survival(prepared_data, fixed_time)
   center_summary <- summarize_centers(prepared_data, expected_survival, observed_survival)
   metrics <- compute_metrics(center_summary)
@@ -69,12 +70,12 @@ benchmark_survival <- function(data, center_col, status_col, time_col, fixed_tim
 
 #' @rdname benchmark_survival
 #' @keywords internal
-prepare_data <- function(data, center_col, status_col, time_col, covariates) {
-  required_cols <- c(center_col, status_col, time_col, covariates)
+prepare_data <- function(data, center_col, status_col, time_col, numeric_covariates, factor_covariates) {
+  required_cols <- c(center_col, status_col, time_col, numeric_covariates, factor_covariates)
   missing_cols <- setdiff(required_cols, names(data))
   if (length(missing_cols) > 0) stop("Missing columns: ", paste(missing_cols, collapse = ", "))
 
-  data %>%
+  data <- data %>%
     rename(
       center = !!sym(center_col),
       status = !!sym(status_col),
@@ -89,22 +90,41 @@ prepare_data <- function(data, center_col, status_col, time_col, covariates) {
       !is.na(status),
       time > 0
     )
+
+  if (!is.null(factor_covariates)) {
+    data <- data %>% mutate(across(all_of(factor_covariates), as.factor))
+  }
+
+  return(data)
 }
 
 #' @rdname benchmark_survival
 #' @keywords internal
-fit_cox_model <- function(data, covariates) {
-  formula <- as.formula(paste("Surv(time, status) ~", paste(covariates, collapse = " + ")))
+fit_cox_model <- function(data, numeric_covariates, factor_covariates) {
+  covariates <- c(numeric_covariates, factor_covariates)
+  formula <- if (length(covariates) > 0) {
+    as.formula(paste("Surv(time, status) ~", paste(covariates, collapse = " + ")))
+  } else {
+    as.formula("Surv(time, status) ~ 1")
+  }
   survival::coxph(formula, data = data)
 }
 
 #' @rdname benchmark_survival
 #' @keywords internal
-compute_expected_survival <- function(data, cox_model, fixed_time, covariates) {
+compute_expected_survival <- function(data, cox_model, fixed_time, numeric_covariates, factor_covariates) {
   bh <- survival::basehaz(cox_model, centered = FALSE)
   H_fixed <- max(bh$hazard[bh$time <= fixed_time], 0)
 
-  lp <- rowSums(sapply(covariates, function(var) coef(cox_model)[var] * data[[var]]))
+  # Compute linear predictor using coefficients and covariates
+  covariates <- c(numeric_covariates, factor_covariates)
+  if (length(covariates) > 0) {
+    lp <- rowSums(sapply(covariates, function(var) {
+      coef(cox_model)[var] * data[[var]]
+    }), na.rm = TRUE)
+  } else {
+    lp <- rep(0, nrow(data))  # No covariates, lp = 0
+  }
 
   data %>%
     mutate(
@@ -112,24 +132,28 @@ compute_expected_survival <- function(data, cox_model, fixed_time, covariates) {
     )
 }
 
+#' @rdname benchmark_survival
+#' @keywords internal
 compute_observed_survival <- function(data, fixed_time) {
   data %>%
     group_by(center) %>%
     group_modify(~ {
       fit <- survival::survfit(Surv(time, status) ~ 1, data = .x)
       idx <- findInterval(fixed_time, fit$time)
-      S_obs <- if (idx == 0) 1 else fit$surv[idx]
+      S_obs <- if (idx == 0 || length(fit$surv) == 0) 1 else fit$surv[idx]
       tibble(S_obs = S_obs)
     }) %>%
     ungroup()
 }
 
+#' @rdname benchmark_survival
+#' @keywords internal
 summarize_centers <- function(data, expected_survival, observed_survival) {
   patient_agg <- expected_survival %>%
     group_by(center) %>%
     summarise(
-      E_S = sum(S_i),
-      V_S = sum(S_i * (1 - S_i)),
+      E_S = sum(S_i, na.rm = TRUE),
+      V_S = sum(S_i * (1 - S_i), na.rm = TRUE),
       .groups = "drop"
     )
 
@@ -141,6 +165,8 @@ summarize_centers <- function(data, expected_survival, observed_survival) {
     mutate(O_S = S_obs * n_patients)
 }
 
+#' @rdname benchmark_survival
+#' @keywords internal
 compute_metrics <- function(center_summary) {
   center_summary %>%
     mutate(
@@ -155,6 +181,8 @@ compute_metrics <- function(center_summary) {
     )
 }
 
+#' @rdname benchmark_survival
+#' @keywords internal
 generate_funnel_limits <- function(metrics, conf_levels) {
   precision_seq <- seq(
     max(min(metrics$precision, na.rm = TRUE), 0.01),
@@ -173,6 +201,8 @@ generate_funnel_limits <- function(metrics, conf_levels) {
   limits
 }
 
+#' @rdname benchmark_survival
+#' @keywords internal
 create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, include_legend = TRUE) {
   # Define color and linetype mappings for confidence levels
   color_map <- c("80%" = "blue", "95%" = "red")
@@ -266,4 +296,3 @@ utils::globalVariables(c(
   ".", "center", "status", "time", "age", "S_i", "n_patients",
   "E_S", "V_S", "O_S", "SSR", "Z", "precision", "lp", "S_obs"
 ))
-
