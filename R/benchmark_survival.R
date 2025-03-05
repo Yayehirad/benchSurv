@@ -92,7 +92,8 @@ prepare_data <- function(data, center_col, status_col, time_col, numeric_covaria
     )
 
   if (!is.null(factor_covariates)) {
-    data <- data %>% mutate(across(all_of(factor_covariates), as.factor))
+    # Convert factor covariates to factors and replace NA with "Missing" level
+    data <- data %>% mutate(across(all_of(factor_covariates), ~as.factor(ifelse(is.na(.), "Missing", .))))
   }
 
   return(data)
