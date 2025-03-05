@@ -5,6 +5,11 @@
 \alias{prepare_data}
 \alias{fit_cox_model}
 \alias{compute_expected_survival}
+\alias{compute_observed_survival}
+\alias{summarize_centers}
+\alias{compute_metrics}
+\alias{generate_funnel_limits}
+\alias{create_funnel_plot}
 \title{Benchmark Survival Analysis}
 \usage{
 benchmark_survival(
@@ -19,7 +24,8 @@ benchmark_survival(
   strata_covariates = NULL,
   highlight_center = NULL,
   conf_levels = c(0.8, 0.95),
-  include_legend = TRUE
+  include_legend = TRUE,
+  use_log_scale = FALSE
 )
 
 prepare_data(
@@ -41,34 +47,53 @@ fit_cox_model(
 )
 
 compute_expected_survival(data, cox_model, fixed_time)
+
+compute_observed_survival(data, fixed_time)
+
+summarize_centers(data, expected_survival, observed_survival)
+
+compute_metrics(center_summary)
+
+generate_funnel_limits(metrics, conf_levels)
+
+create_funnel_plot(
+  metrics,
+  limits,
+  highlight = NULL,
+  conf_levels,
+  include_legend = TRUE,
+  use_log_scale = FALSE
+)
 }
 \arguments{
 \item{data}{A data frame containing survival data.}
 
-\item{center_col}{Name of the column with center identifiers.}
+\item{center_col}{Name of the column with center identifiers (character).}
 
 \item{status_col}{Name of the column with event status (0 = censored, 1 = event).}
 
-\item{time_col}{Name of the column with survival times.}
+\item{time_col}{Name of the column with survival times (numeric).}
 
 \item{fixed_time}{Time point for survival analysis (e.g., 36 for 3 years).}
 
-\item{numeric_covariates}{Vector of column names for numeric covariates used for risk adjustment.}
+\item{numeric_covariates}{Optional vector of column names for numeric covariates used for risk adjustment (e.g., c("Age")).}
 
-\item{factor_covariates}{Vector of column names for categorical covariates used for risk adjustment.}
+\item{factor_covariates}{Optional vector of column names for categorical covariates used for risk adjustment (e.g., c("ISS")).}
 
-\item{time_dep_covariates}{Optional vector of numeric covariate names that violate the PH assumption. These must be included in numeric_covariates. For each, an interaction with log(time) is included in the model.}
+\item{time_dep_covariates}{Optional vector of numeric covariate names that violate the PH assumption. These must be included in \code{numeric_covariates}. For each, an interaction with \code{log(time)} is included in the model.}
 
-\item{strata_covariates}{Optional vector of column names to be used for stratification via strata().}
+\item{strata_covariates}{Optional vector of column names for stratification via \code{strata()}.}
 
-\item{highlight_center}{Optional center to highlight in the plot.}
+\item{highlight_center}{Optional center identifier to highlight in the plot.}
 
-\item{conf_levels}{Confidence levels for funnel plot limits.}
+\item{conf_levels}{Numeric vector of confidence levels for funnel plot limits (e.g., \code{c(0.8, 0.95)}).}
 
-\item{include_legend}{Logical; show legend (default TRUE).}
+\item{include_legend}{Logical; include legend in the plot (default \code{TRUE}).}
+
+\item{use_log_scale}{Logical; use log scale for precision axis (default \code{FALSE}).}
 }
 \value{
-A ggplot object representing the funnel plot.
+A \code{ggplot} object representing the funnel plot.
 }
 \description{
 Performs survival benchmarking across centers using standardized survival ratios and funnel plots.

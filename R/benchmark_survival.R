@@ -7,18 +7,19 @@
 #' @param status_col Name of the column with event status (0 = censored, 1 = event).
 #' @param time_col Name of the column with survival times (numeric).
 #' @param fixed_time Time point for survival analysis (e.g., 36 for 3 years).
-#' @param numeric_covariates Optional vector of column names for numeric covariates used for risk adjustment.
-#' @param factor_covariates Optional vector of column names for categorical covariates used for risk adjustment.
+#' @param numeric_covariates Optional vector of column names for numeric covariates used for risk adjustment (e.g., c("Age")).
+#' @param factor_covariates Optional vector of column names for categorical covariates used for risk adjustment (e.g., c("ISS")).
 #' @param time_dep_covariates Optional vector of numeric covariate names that violate the PH assumption. These must be included in \code{numeric_covariates}. For each, an interaction with \code{log(time)} is included in the model.
 #' @param strata_covariates Optional vector of column names for stratification via \code{strata()}.
 #' @param highlight_center Optional center identifier to highlight in the plot.
 #' @param conf_levels Numeric vector of confidence levels for funnel plot limits (e.g., \code{c(0.8, 0.95)}).
 #' @param include_legend Logical; include legend in the plot (default \code{TRUE}).
+#' @param use_log_scale Logical; use log scale for precision axis (default \code{FALSE}).
 #' @return A \code{ggplot} object representing the funnel plot.
 #' @export
 #' @importFrom dplyr %>% mutate group_by summarise left_join filter rename group_modify ungroup n bind_rows
 #' @importFrom survival coxph basehaz survfit Surv cox.zph
-#' @importFrom ggplot2 ggplot geom_point geom_line labs scale_color_manual theme_minimal coord_cartesian geom_hline scale_linetype_manual aes theme scale_fill_discrete
+#' @importFrom ggplot2 ggplot geom_point geom_line labs scale_color_manual theme_minimal coord_cartesian geom_hline scale_linetype_manual aes theme scale_fill_discrete scale_x_log10
 #' @importFrom colorspace rainbow_hcl
 #' @importFrom stats coef qnorm setNames
 #' @importFrom utils tail globalVariables
@@ -28,7 +29,7 @@ benchmark_survival <- function(data, center_col, status_col, time_col, fixed_tim
                                numeric_covariates = NULL, factor_covariates = NULL,
                                time_dep_covariates = NULL, strata_covariates = NULL,
                                highlight_center = NULL, conf_levels = c(0.8, 0.95),
-                               include_legend = TRUE) {
+                               include_legend = TRUE, use_log_scale = FALSE) {
   # Input validation
   if (!is.data.frame(data)) stop("`data` must be a data frame")
   if (!is.character(center_col) || !is.character(status_col) || !is.character(time_col)) {
@@ -65,7 +66,7 @@ benchmark_survival <- function(data, center_col, status_col, time_col, fixed_tim
   center_summary <- summarize_centers(prepared_data, expected_survival, observed_survival)
   metrics <- compute_metrics(center_summary)
   funnel_limits <- generate_funnel_limits(metrics, conf_levels)
-  plot <- create_funnel_plot(metrics, funnel_limits, highlight_center, conf_levels, include_legend)
+  plot <- create_funnel_plot(metrics, funnel_limits, highlight_center, conf_levels, include_legend, use_log_scale)
 
   # Model fit summary
   cox_fit_summary <- summary(cox_model)
@@ -185,7 +186,7 @@ compute_metrics <- function(center_summary) {
     mutate(SSR = O_S / E_S,
            Z = (O_S - E_S) / sqrt(V_S),
            precision = E_S^2 / V_S) %>%
-    filter(is.finite(SSR), is.finite(precision), precision > 0)
+    filter(is.finite(SSR), is.finite(precision), precision > 0, precision < 50000)  # Cap precision to avoid extremes
 }
 
 #' @rdname benchmark_survival
@@ -200,20 +201,30 @@ generate_funnel_limits <- function(metrics, conf_levels) {
     limits[[paste0("upper_", conf)]] <- 1 + z / sqrt(precision_seq)
     limits[[paste0("lower_", conf)]] <- pmax(0, 1 - z / sqrt(precision_seq))
   }
+
   limits
 }
 
 #' @rdname benchmark_survival
 #' @keywords internal
-create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, include_legend = TRUE) {
+create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, include_legend = TRUE, use_log_scale = FALSE) {
+  # Define color and linetype mappings
   color_map <- setNames(c("blue", "red"), paste0(conf_levels * 100, "%"))
   linetype_map <- setNames(c("dashed", "dotted"), paste0(conf_levels * 100, "%"))
-  y_min <- min(metrics$SSR, na.rm = TRUE) - 0.1
 
+  # Determine y-axis limits based on data with a small buffer
+  y_min <- max(0, min(metrics$SSR, na.rm = TRUE) - 0.1)
+  y_max <- min(1.5, max(metrics$SSR, na.rm = TRUE) + 0.1)
+
+  # Adjust x-axis limits to focus on data range
+  x_min <- max(0, min(metrics$precision, na.rm = TRUE) * 0.9)
+  x_max <- max(metrics$precision, na.rm = TRUE) * 1.1
+
+  # Create base plot
   gg <- ggplot() +
     geom_point(data = metrics,
                aes(x = precision, y = SSR, fill = center),
-               shape = 21, color = "black", size = 3, alpha = 0.7) +
+               shape = 21, color = "black", size = 2, alpha = 0.7) +
     geom_hline(yintercept = 1, color = "grey50", linetype = 2) +
     theme_minimal(base_size = 14) +
     labs(title = "Survival Outcomes Benchmarking",
@@ -225,9 +236,17 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, i
     scale_fill_discrete() +
     scale_color_manual(values = color_map, drop = FALSE) +
     scale_linetype_manual(values = linetype_map, drop = FALSE) +
-    coord_cartesian(ylim = c(y_min, NA)) +
-    theme(legend.position = if (include_legend) "right" else "none")
+    coord_cartesian(xlim = c(x_min, x_max), ylim = c(y_min, y_max)) +
+    theme(legend.position = if (include_legend) "right" else "none",
+          legend.justification = c(1, 1),
+          legend.box = "vertical")
 
+  # Add log scale if requested
+  if (use_log_scale) {
+    gg <- gg + scale_x_log10(labels = scales::comma)
+  }
+
+  # Add funnel limits
   for (conf in conf_levels) {
     conf_label <- paste0(conf * 100, "%")
     upper_df <- tibble(precision = limits$precision,
@@ -242,16 +261,17 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, i
       geom_line(data = lower_df, aes(x = precision, y = SSR, color = conf, linetype = conf), size = 1)
   }
 
-  if (!is.null(highlight)) {
+  # Highlight specific center if provided
+  if (!is.null(highlight) && highlight %in% metrics$center) {
     highlighted_data <- filter(metrics, center == highlight)
     if (nrow(highlighted_data) > 0) {
       gg <- gg +
         geom_point(data = highlighted_data,
                    aes(x = precision, y = SSR),
-                   shape = 21, fill = "red", color = "black", size = 5, stroke = 1.3) +
+                   shape = 21, fill = "red", color = "black", size = 4, stroke = 1) +
         geom_text(data = highlighted_data,
                   aes(x = precision, y = SSR, label = center),
-                  vjust = -1, color = "red", size = 5, fontface = "bold")
+                  vjust = -1.5, color = "red", size = 4, fontface = "bold")
     }
   }
 
