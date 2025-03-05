@@ -9,6 +9,8 @@
 #' @param fixed_time Time point for survival analysis (e.g., 36 for 3 years).
 #' @param numeric_covariates Vector of column names for numeric covariates used for risk adjustment.
 #' @param factor_covariates Vector of column names for categorical covariates used for risk adjustment.
+#' @param time_dep_covariates Optional vector of numeric covariate names that violate the PH assumption.
+#'   For each, an interaction with log(fixed_time) is included in the model.
 #' @param strata_covariates Optional vector of column names to be used for stratification via strata().
 #' @param highlight_center Optional center to highlight in the plot.
 #' @param conf_levels Confidence levels for funnel plot limits.
@@ -25,22 +27,23 @@
 #' @importFrom tibble tibble
 benchmark_survival <- function(data, center_col, status_col, time_col, fixed_time,
                                numeric_covariates = NULL, factor_covariates = NULL,
-                               strata_covariates = NULL,
+                               time_dep_covariates = NULL, strata_covariates = NULL,
                                highlight_center = NULL, conf_levels = c(0.8, 0.95),
                                include_legend = TRUE) {
   if (!is.data.frame(data)) stop("data must be a data frame")
   if (!is.numeric(fixed_time) || fixed_time <= 0) stop("fixed_time must be positive numeric")
 
-  # Combine risk adjustment covariates
-  all_covariates <- c(numeric_covariates, factor_covariates)
+  # Combine risk adjustment covariates that are not modeled with time-dependency
+  base_covariates <- c(numeric_covariates, factor_covariates)
 
   # Processing pipeline: include strata_covariates in data preparation so we ensure they exist
   prepared_data <- prepare_data(data, center_col, status_col, time_col,
-                                covariates = all_covariates,
+                                covariates = base_covariates,
                                 factor_covariates = factor_covariates,
                                 strata_covariates = strata_covariates)
 
-  cox_model <- fit_cox_model(prepared_data, all_covariates, strata_covariates)
+  cox_model <- fit_cox_model(prepared_data, base_covariates, strata_covariates,
+                             time_dep_covariates, fixed_time)
 
   # Proportional Hazards (PH) Assumption Check
   ph_test <- survival::cox.zph(cox_model)
@@ -50,7 +53,7 @@ benchmark_survival <- function(data, center_col, status_col, time_col, fixed_tim
   if (all(ph_test$table[, 3] > 0.05)) {
     message("✅ The Proportional Hazards (PH) assumption is fulfilled.")
   } else {
-    warning("⚠️ PH assumption may be violated. Consider using time-dependent covariates or stratification.")
+    warning("⚠️ PH assumption may be violated. Consider modeling the violating covariates as time-dependent.")
     message("Covariates violating PH assumption: ",
             paste(rownames(ph_test$table)[ph_test$table[, 3] <= 0.05], collapse = ", "))
   }
@@ -111,7 +114,7 @@ prepare_data <- function(data, center_col, status_col, time_col,
     }
   }
 
-  # Also convert strata_covariates to factors if not already numeric
+  # Also convert strata_covariates to factors if not numeric
   if (!is.null(strata_covariates)) {
     for (var in strata_covariates) {
       if (var %in% names(data) && !is.numeric(data[[var]])) {
@@ -125,16 +128,24 @@ prepare_data <- function(data, center_col, status_col, time_col,
 
 #' @rdname benchmark_survival
 #' @keywords internal
-fit_cox_model <- function(data, covariates, strata_covariates = NULL) {
-  # Build the risk adjustment part of the formula if provided
-  risk_formula <- if (length(covariates) > 0) paste(covariates, collapse = " + ") else "1"
+fit_cox_model <- function(data, covariates, strata_covariates = NULL,
+                          time_dep_covariates = NULL, fixed_time) {
+  # Build the risk adjustment part of the formula from base (non-time-dependent) covariates.
+  risk_terms <- if (length(covariates) > 0) paste(covariates, collapse = " + ") else "1"
 
-  # Append strata() for any stratification covariates if provided
+  # Add time-dependent covariates as both the baseline and an interaction with log(fixed_time)
+  if (!is.null(time_dep_covariates)) {
+    td_terms <- paste0(time_dep_covariates, " + I(", time_dep_covariates, " * log(", fixed_time, "))",
+                       collapse = " + ")
+    risk_terms <- paste(risk_terms, td_terms, sep = " + ")
+  }
+
+  # Append strata() terms if provided
   if (!is.null(strata_covariates)) {
     strata_formula <- paste0("strata(", paste(strata_covariates, collapse = "), strata("), ")")
-    full_formula <- as.formula(paste("Surv(time, status) ~", risk_formula, "+", strata_formula))
+    full_formula <- as.formula(paste("Surv(time, status) ~", risk_terms, "+", strata_formula))
   } else {
-    full_formula <- as.formula(paste("Surv(time, status) ~", risk_formula))
+    full_formula <- as.formula(paste("Surv(time, status) ~", risk_terms))
   }
 
   survival::coxph(full_formula, data = data)
@@ -146,7 +157,7 @@ compute_expected_survival <- function(data, cox_model, fixed_time) {
   bh <- survival::basehaz(cox_model, centered = FALSE)
   H_fixed <- max(bh$hazard[bh$time <= fixed_time], 0)
 
-  # Use predict() to compute the linear predictor (lp) handling both numeric and factor covariates.
+  # Using predict() to compute the linear predictor which now includes any time-dependent terms.
   lp <- predict(cox_model, newdata = data, type = "lp")
 
   data %>%

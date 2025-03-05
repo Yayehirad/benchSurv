@@ -15,6 +15,7 @@ benchmark_survival(
   fixed_time,
   numeric_covariates = NULL,
   factor_covariates = NULL,
+  time_dep_covariates = NULL,
   strata_covariates = NULL,
   highlight_center = NULL,
   conf_levels = c(0.8, 0.95),
@@ -31,7 +32,13 @@ prepare_data(
   strata_covariates = NULL
 )
 
-fit_cox_model(data, covariates, strata_covariates = NULL)
+fit_cox_model(
+  data,
+  covariates,
+  strata_covariates = NULL,
+  time_dep_covariates = NULL,
+  fixed_time
+)
 
 compute_expected_survival(data, cox_model, fixed_time)
 }
@@ -49,6 +56,9 @@ compute_expected_survival(data, cox_model, fixed_time)
 \item{numeric_covariates}{Vector of column names for numeric covariates used for risk adjustment.}
 
 \item{factor_covariates}{Vector of column names for categorical covariates used for risk adjustment.}
+
+\item{time_dep_covariates}{Optional vector of numeric covariate names that violate the PH assumption.
+For each, an interaction with log(fixed_time) is included in the model.}
 
 \item{strata_covariates}{Optional vector of column names to be used for stratification via strata().}
 
