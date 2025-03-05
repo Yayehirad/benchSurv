@@ -303,7 +303,7 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, i
         stroke = 1.3,
         show.legend = FALSE
       ) +
-      geom_text(
+      ggplot2::geom_text(
         data = highlighted_data,
         aes(x = precision, y = SSR, label = center),
         vjust = -1,    # position label above the point
