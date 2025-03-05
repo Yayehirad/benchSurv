@@ -9,8 +9,7 @@
 #' @param fixed_time Time point for survival analysis (e.g., 36 for 3 years).
 #' @param numeric_covariates Vector of column names for numeric covariates used for risk adjustment.
 #' @param factor_covariates Vector of column names for categorical covariates used for risk adjustment.
-#' @param time_dep_covariates Optional vector of numeric covariate names that violate the PH assumption.
-#'   For each, an interaction with log(fixed_time) is included in the model.
+#' @param time_dep_covariates Optional vector of numeric covariate names that violate the PH assumption. These must be included in numeric_covariates. For each, an interaction with log(time) is included in the model.
 #' @param strata_covariates Optional vector of column names to be used for stratification via strata().
 #' @param highlight_center Optional center to highlight in the plot.
 #' @param conf_levels Confidence levels for funnel plot limits.
@@ -84,7 +83,6 @@ benchmark_survival <- function(data, center_col, status_col, time_col, fixed_tim
 #' @keywords internal
 prepare_data <- function(data, center_col, status_col, time_col,
                          covariates, factor_covariates, strata_covariates = NULL) {
-  # Ensure required columns exist: add strata_covariates if provided
   required_cols <- unique(c(center_col, status_col, time_col, covariates, strata_covariates))
   missing_cols <- setdiff(required_cols, names(data))
   if (length(missing_cols) > 0) stop("Missing columns: ", paste(missing_cols, collapse = ", "))
@@ -105,7 +103,6 @@ prepare_data <- function(data, center_col, status_col, time_col,
       time > 0
     )
 
-  # Convert specified factor covariates to factors
   if (!is.null(factor_covariates)) {
     for (var in factor_covariates) {
       if (var %in% names(data)) {
@@ -114,7 +111,6 @@ prepare_data <- function(data, center_col, status_col, time_col,
     }
   }
 
-  # Also convert strata_covariates to factors if not numeric
   if (!is.null(strata_covariates)) {
     for (var in strata_covariates) {
       if (var %in% names(data) && !is.numeric(data[[var]])) {
@@ -130,17 +126,21 @@ prepare_data <- function(data, center_col, status_col, time_col,
 #' @keywords internal
 fit_cox_model <- function(data, covariates, strata_covariates = NULL,
                           time_dep_covariates = NULL, fixed_time) {
-  # Build the risk adjustment part of the formula from base (non-time-dependent) covariates.
+  if (!is.null(time_dep_covariates)) {
+    missing_main <- setdiff(time_dep_covariates, covariates)
+    if (length(missing_main) > 0) {
+      stop("Time-dependent covariates must be included in numeric or factor covariates: ",
+           paste(missing_main, collapse = ", "))
+    }
+  }
+
   risk_terms <- if (length(covariates) > 0) paste(covariates, collapse = " + ") else "1"
 
-  # Add time-dependent covariates as both the baseline and an interaction with log(fixed_time)
   if (!is.null(time_dep_covariates)) {
-    td_terms <- paste0(time_dep_covariates, " + I(", time_dep_covariates, " * log(", fixed_time, "))",
-                       collapse = " + ")
+    td_terms <- paste0("tt(", time_dep_covariates, ")", collapse = " + ")
     risk_terms <- paste(risk_terms, td_terms, sep = " + ")
   }
 
-  # Append strata() terms if provided
   if (!is.null(strata_covariates)) {
     strata_formula <- paste0("strata(", paste(strata_covariates, collapse = "), strata("), ")")
     full_formula <- as.formula(paste("Surv(time, status) ~", risk_terms, "+", strata_formula))
@@ -148,22 +148,20 @@ fit_cox_model <- function(data, covariates, strata_covariates = NULL,
     full_formula <- as.formula(paste("Surv(time, status) ~", risk_terms))
   }
 
-  survival::coxph(full_formula, data = data)
+  tt <- function(x, t, ...) x * log(t)
+  survival::coxph(full_formula, data = data, tt = tt)
 }
 
 #' @rdname benchmark_survival
 #' @keywords internal
 compute_expected_survival <- function(data, cox_model, fixed_time) {
-  bh <- survival::basehaz(cox_model, centered = FALSE)
-  H_fixed <- max(bh$hazard[bh$time <= fixed_time], 0)
-
-  # Using predict() to compute the linear predictor which now includes any time-dependent terms.
-  lp <- predict(cox_model, newdata = data, type = "lp")
+  surv_fit <- survival::survfit(cox_model, newdata = data)
+  surv_summary <- summary(surv_fit, times = fixed_time)
+  S_i <- as.vector(surv_summary$surv)
+  S_i[is.na(S_i)] <- 0  # Handle cases where fixed_time is beyond the last observed time
 
   data %>%
-    mutate(
-      S_i = exp(-H_fixed * exp(lp))
-    )
+    mutate(S_i = S_i)
 }
 
 compute_observed_survival <- function(data, fixed_time) {
@@ -228,13 +226,11 @@ generate_funnel_limits <- function(metrics, conf_levels) {
 }
 
 create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, include_legend = TRUE) {
-  # Define color and linetype mappings for confidence levels
   color_map <- c("80%" = "blue", "95%" = "red")
   linetype_map <- c("80%" = "dashed", "95%" = "dotted")
-  y_min <- min(metrics$SSR, na.rm = TRUE) - 0.1  # Adjust y-axis limit
+  y_min <- min(metrics$SSR, na.rm = TRUE) - 0.1
 
   gg <- ggplot() +
-    # Plot centers as points with fill = center (shape = 21 allows separate fill and outline)
     geom_point(
       data = metrics,
       aes(x = precision, y = SSR, fill = center),
@@ -243,7 +239,6 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, i
       size = 3,
       alpha = 0.7
     ) +
-    # Horizontal reference line at SSR=1
     geom_hline(yintercept = 1, color = "grey50", linetype = 2) +
     theme_minimal(base_size = 14) +
     labs(
@@ -254,24 +249,23 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, i
       color  = "Confidence",
       linetype = "Confidence"
     ) +
-    ggplot2::scale_fill_discrete() +
-    ggplot2::scale_color_manual(values = color_map, drop = FALSE) +
+    scale_fill_discrete() +
+    scale_color_manual(values = color_map, drop = FALSE) +
     scale_linetype_manual(values = linetype_map, drop = FALSE) +
     coord_cartesian(ylim = c(y_min, NA)) +
     theme(legend.position = if (include_legend) "right" else "none",
           legend.justification = c(1, 1),
           legend.box = "vertical")
 
-  # Plot upper and lower funnel lines for each confidence level
   for (conf in conf_levels) {
     conf_label <- paste0(conf * 100, "%")
 
-    upper_df <- tibble::tibble(
+    upper_df <- tibble(
       precision = limits$precision,
       SSR       = limits[[paste0("upper_", conf)]],
       conf      = conf_label
     )
-    lower_df <- tibble::tibble(
+    lower_df <- tibble(
       precision = limits$precision,
       SSR       = limits[[paste0("lower_", conf)]],
       conf      = conf_label
@@ -289,9 +283,8 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, i
       )
   }
 
-  # Highlight and label a center if specified
   if (!is.null(highlight)) {
-    highlighted_data <- dplyr::filter(metrics, center == highlight)
+    highlighted_data <- filter(metrics, center == highlight)
     gg <- gg +
       geom_point(
         data = highlighted_data,
@@ -303,10 +296,10 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, i
         stroke = 1.3,
         show.legend = FALSE
       ) +
-      ggplot2::geom_text(
+      geom_text(
         data = highlighted_data,
         aes(x = precision, y = SSR, label = center),
-        vjust = -1,    # position label above the point
+        vjust = -1,
         color = "red",
         size = 5,
         fontface = "bold"
