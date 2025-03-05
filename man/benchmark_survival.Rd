@@ -57,8 +57,7 @@ compute_expected_survival(data, cox_model, fixed_time)
 
 \item{factor_covariates}{Vector of column names for categorical covariates used for risk adjustment.}
 
-\item{time_dep_covariates}{Optional vector of numeric covariate names that violate the PH assumption.
-For each, an interaction with log(fixed_time) is included in the model.}
+\item{time_dep_covariates}{Optional vector of numeric covariate names that violate the PH assumption. These must be included in numeric_covariates. For each, an interaction with log(time) is included in the model.}
 
 \item{strata_covariates}{Optional vector of column names to be used for stratification via strata().}
 
