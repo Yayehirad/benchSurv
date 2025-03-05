@@ -19,7 +19,7 @@
 #' @export
 #' @importFrom dplyr %>% mutate group_by summarise left_join filter rename group_modify ungroup n bind_rows
 #' @importFrom survival coxph basehaz survfit Surv cox.zph
-#' @importFrom ggplot2 ggplot geom_point geom_line labs scale_color_manual theme_minimal coord_cartesian geom_hline scale_linetype_manual aes theme scale_fill_discrete scale_x_log10
+#' @importFrom ggplot2 ggplot geom_point geom_line labs scale_color_manual theme_minimal coord_cartesian geom_hline scale_linetype_manual aes theme scale_fill_discrete scale_x_log10 geom_text
 #' @importFrom colorspace rainbow_hcl
 #' @importFrom stats coef qnorm setNames
 #' @importFrom utils tail globalVariables
