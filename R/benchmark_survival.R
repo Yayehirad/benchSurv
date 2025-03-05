@@ -155,52 +155,59 @@ fit_cox_model <- function(data, covariates, strata_covariates = NULL,
 #' @rdname benchmark_survival
 #' @keywords internal
 compute_expected_survival <- function(data, cox_model, fixed_time) {
-  surv_fit <- survival::survfit(cox_model, newdata = data)
-  surv_summary <- summary(surv_fit, times = fixed_time)
-  S_i <- as.vector(surv_summary$surv)
-  S_i[is.na(S_i)] <- 0  # Handle cases where fixed_time is beyond the last observed time
+  # Obtain baseline hazard estimates
+  bh <- survival::basehaz(cox_model, centered = FALSE)
+  max_time <- max(bh$time, na.rm = TRUE)
+  if (max_time < fixed_time) {
+    warning("No baseline hazard available for fixed_time = ", fixed_time,
+            ". The maximum follow-up is only ", round(max_time, 1), " months. Expected survival may be incorrect.")
+  }
+  H_fixed <- max(bh$hazard[bh$time <= fixed_time], 0)
+  lp <- predict(cox_model, newdata = data, type = "lp")
 
   data %>%
-    mutate(S_i = S_i)
+    dplyr::mutate(
+      S_i = exp(-H_fixed * exp(lp))
+    )
 }
 
 compute_observed_survival <- function(data, fixed_time) {
   data %>%
-    group_by(center) %>%
-    group_modify(~ {
+    dplyr::group_by(center) %>%
+    dplyr::group_modify(~ {
       fit <- survival::survfit(Surv(time, status) ~ 1, data = .x)
       idx <- findInterval(fixed_time, fit$time)
       S_obs <- if (idx == 0) 1 else fit$surv[idx]
-      tibble(S_obs = S_obs)
+      tibble::tibble(S_obs = S_obs)
     }) %>%
-    ungroup()
+    dplyr::ungroup()
 }
 
 summarize_centers <- function(data, expected_survival, observed_survival) {
   patient_agg <- expected_survival %>%
-    group_by(center) %>%
-    summarise(
+    dplyr::group_by(center) %>%
+    dplyr::summarise(
       E_S = sum(S_i),
       V_S = sum(S_i * (1 - S_i)),
       .groups = "drop"
     )
 
   data %>%
-    group_by(center) %>%
-    summarise(n_patients = n(), .groups = "drop") %>%
-    left_join(patient_agg, by = "center") %>%
-    left_join(observed_survival, by = "center") %>%
-    mutate(O_S = S_obs * n_patients)
+    dplyr::group_by(center) %>%
+    dplyr::summarise(n_patients = n(), .groups = "drop") %>%
+    dplyr::left_join(patient_agg, by = "center") %>%
+    dplyr::left_join(observed_survival, by = "center") %>%
+    dplyr::mutate(O_S = S_obs * n_patients)
 }
 
 compute_metrics <- function(center_summary) {
   center_summary %>%
-    mutate(
+    dplyr::mutate(
       SSR = O_S / E_S,
       Z = (O_S - E_S) / sqrt(V_S),
       precision = E_S^2 / V_S
     ) %>%
-    filter(
+    dplyr::filter(
       is.finite(SSR),
       is.finite(precision),
       precision > 0
@@ -214,7 +221,7 @@ generate_funnel_limits <- function(metrics, conf_levels) {
     length.out = 100
   )
 
-  limits <- tibble(precision = precision_seq)
+  limits <- tibble::tibble(precision = precision_seq)
 
   for (conf in conf_levels) {
     z <- qnorm((1 + conf) / 2)
@@ -230,18 +237,18 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, i
   linetype_map <- c("80%" = "dashed", "95%" = "dotted")
   y_min <- min(metrics$SSR, na.rm = TRUE) - 0.1
 
-  gg <- ggplot() +
-    geom_point(
+  gg <- ggplot2::ggplot() +
+    ggplot2::geom_point(
       data = metrics,
-      aes(x = precision, y = SSR, fill = center),
+      ggplot2::aes(x = precision, y = SSR, fill = center),
       shape = 21,
       color = "black",
       size = 3,
       alpha = 0.7
     ) +
-    geom_hline(yintercept = 1, color = "grey50", linetype = 2) +
-    theme_minimal(base_size = 14) +
-    labs(
+    ggplot2::geom_hline(yintercept = 1, color = "grey50", linetype = 2) +
+    ggplot2::theme_minimal(base_size = 14) +
+    ggplot2::labs(
       title  = "Survival Outcomes Benchmarking",
       x      = "Precision (E^2/V)",
       y      = "Standardized Survival Ratio (O/E)",
@@ -249,46 +256,46 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, i
       color  = "Confidence",
       linetype = "Confidence"
     ) +
-    scale_fill_discrete() +
-    scale_color_manual(values = color_map, drop = FALSE) +
-    scale_linetype_manual(values = linetype_map, drop = FALSE) +
-    coord_cartesian(ylim = c(y_min, NA)) +
-    theme(legend.position = if (include_legend) "right" else "none",
-          legend.justification = c(1, 1),
-          legend.box = "vertical")
+    ggplot2::scale_fill_discrete() +
+    ggplot2::scale_color_manual(values = color_map, drop = FALSE) +
+    ggplot2::scale_linetype_manual(values = linetype_map, drop = FALSE) +
+    ggplot2::coord_cartesian(ylim = c(y_min, NA)) +
+    ggplot2::theme(legend.position = if (include_legend) "right" else "none",
+                   legend.justification = c(1, 1),
+                   legend.box = "vertical")
 
   for (conf in conf_levels) {
     conf_label <- paste0(conf * 100, "%")
-
-    upper_df <- tibble(
+    upper_df <- tibble::tibble(
       precision = limits$precision,
       SSR       = limits[[paste0("upper_", conf)]],
       conf      = conf_label
     )
-    lower_df <- tibble(
+    lower_df <- tibble::tibble(
       precision = limits$precision,
       SSR       = limits[[paste0("lower_", conf)]],
       conf      = conf_label
     )
 
-    gg <- gg + geom_line(
-      data = upper_df,
-      aes(x = precision, y = SSR, color = conf, linetype = conf),
-      size = 1
-    ) +
-      geom_line(
+    gg <- gg +
+      ggplot2::geom_line(
+        data = upper_df,
+        ggplot2::aes(x = precision, y = SSR, color = conf, linetype = conf),
+        size = 1
+      ) +
+      ggplot2::geom_line(
         data = lower_df,
-        aes(x = precision, y = SSR, color = conf, linetype = conf),
+        ggplot2::aes(x = precision, y = SSR, color = conf, linetype = conf),
         size = 1
       )
   }
 
   if (!is.null(highlight)) {
-    highlighted_data <- filter(metrics, center == highlight)
+    highlighted_data <- dplyr::filter(metrics, center == highlight)
     gg <- gg +
-      geom_point(
+      ggplot2::geom_point(
         data = highlighted_data,
-        aes(x = precision, y = SSR),
+        ggplot2::aes(x = precision, y = SSR),
         shape = 21,
         fill = "red",
         color = "black",
@@ -296,9 +303,9 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, i
         stroke = 1.3,
         show.legend = FALSE
       ) +
-      geom_text(
+      ggplot2::geom_text(
         data = highlighted_data,
-        aes(x = precision, y = SSR, label = center),
+        ggplot2::aes(x = precision, y = SSR, label = center),
         vjust = -1,
         color = "red",
         size = 5,
