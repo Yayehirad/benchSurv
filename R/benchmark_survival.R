@@ -7,6 +7,9 @@
 #' @param status_col Name of the column with event status (0 = censored, 1 = event).
 #' @param time_col Name of the column with survival times.
 #' @param fixed_time Time point for survival analysis (e.g., 36 for 3 years).
+#' @param covariates Optional vector of column names for covariates used for risk adjustment.
+#'   If provided and neither numeric_covariates nor factor_covariates are specified,
+#'   these covariates will be treated as categorical variables.
 #' @param numeric_covariates Optional vector of column names for numeric covariates used for risk adjustment (e.g., c("Age")).
 #' @param factor_covariates Optional vector of column names for categorical covariates used for risk adjustment (e.g., c("ISS")).
 #' @param highlight_center Optional center to highlight in the plot.
@@ -23,30 +26,43 @@
 #' @importFrom rlang sym .data
 #' @importFrom tibble tibble
 benchmark_survival <- function(data, center_col, status_col, time_col, fixed_time,
+                               covariates = NULL,                 # MODIFIED: added covariates parameter
                                numeric_covariates = NULL, factor_covariates = NULL,
                                highlight_center = NULL, conf_levels = c(0.8, 0.95),
                                include_legend = TRUE) {
   if (!is.data.frame(data)) stop("data must be a data frame")
   if (!is.numeric(fixed_time) || fixed_time <= 0) stop("fixed_time must be positive numeric")
 
+  # MODIFIED: If covariates is provided (and numeric/factor not specified), use them as factor_covariates
+  if (!is.null(covariates)) {
+    if (is.null(numeric_covariates) && is.null(factor_covariates)) {
+      factor_covariates <- covariates
+    } else {
+      warning("Both covariates and numeric/factor covariates provided, ignoring covariates.")
+    }
+  }
+
   # Processing pipeline
   prepared_data <- prepare_data(data, center_col, status_col, time_col, numeric_covariates, factor_covariates)
   cox_model <- fit_cox_model(prepared_data, numeric_covariates, factor_covariates)
 
   # Proportional Hazards (PH) Assumption Check
-  ph_test <- survival::cox.zph(cox_model)
-  message("\nProportional Hazards (PH) Assumption Test:")
-  print(ph_test)
-
-  if (all(ph_test$table[, 3] > 0.05)) {
-    message("✅ The Proportional Hazards (PH) assumption is fulfilled.")
+  if (length(coef(cox_model)) > 0) {   # MODIFIED: Check if model is non-null
+    ph_test <- survival::cox.zph(cox_model)
+    message("\nProportional Hazards (PH) Assumption Test:")
+    print(ph_test)
+    if (all(ph_test$table[, 3] > 0.05)) {
+      message("✅ The Proportional Hazards (PH) assumption is fulfilled.")
+    } else {
+      warning("⚠️ PH assumption may be violated. Consider using time-dependent covariates or stratification.")
+      message("Covariates violating PH assumption: ",
+              paste(rownames(ph_test$table)[ph_test$table[, 3] <= 0.05], collapse = ", "))
+    }
   } else {
-    warning("⚠️ PH assumption may be violated. Consider using time-dependent covariates or stratification.")
-    message("Covariates violating PH assumption: ",
-            paste(rownames(ph_test$table)[ph_test$table[, 3] <= 0.05], collapse = ", "))
+    message("\nPH test skipped: Null model (no covariates).")  # MODIFIED: Skip PH test if model is null
   }
 
-  expected_survival <- compute_expected_survival(prepared_data, cox_model, fixed_time, numeric_covariates, factor_covariates)
+  expected_survival <- compute_expected_survival(prepared_data, cox_model, fixed_time)
   observed_survival <- compute_observed_survival(prepared_data, fixed_time)
   center_summary <- summarize_centers(prepared_data, expected_survival, observed_survival)
   metrics <- compute_metrics(center_summary)
@@ -67,6 +83,7 @@ benchmark_survival <- function(data, center_col, status_col, time_col, fixed_tim
 
   return(plot)
 }
+
 
 #' @rdname benchmark_survival
 #' @keywords internal
@@ -113,19 +130,12 @@ fit_cox_model <- function(data, numeric_covariates, factor_covariates) {
 
 #' @rdname benchmark_survival
 #' @keywords internal
-compute_expected_survival <- function(data, cox_model, fixed_time, numeric_covariates, factor_covariates) {
+# MODIFIED: Removed extra covariate parameters and use predict() to compute the linear predictor
+compute_expected_survival <- function(data, cox_model, fixed_time) {
   bh <- survival::basehaz(cox_model, centered = FALSE)
   H_fixed <- max(bh$hazard[bh$time <= fixed_time], 0)
 
-  # Compute linear predictor using coefficients and covariates
-  covariates <- c(numeric_covariates, factor_covariates)
-  if (length(covariates) > 0) {
-    lp <- rowSums(sapply(covariates, function(var) {
-      coef(cox_model)[var] * data[[var]]
-    }), na.rm = TRUE)
-  } else {
-    lp <- rep(0, nrow(data))  # No covariates, lp = 0
-  }
+  lp <- predict(cox_model, newdata = data, type = "lp")  # MODIFIED: Use predict() for linear predictor
 
   data %>%
     mutate(
@@ -257,12 +267,12 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, i
     gg <- gg + geom_line(
       data = upper_df,
       aes(x = precision, y = SSR, color = conf, linetype = conf),
-      size = 1
+      linewidth = 1  # MODIFIED: replaced size with linewidth
     ) +
       geom_line(
         data = lower_df,
         aes(x = precision, y = SSR, color = conf, linetype = conf),
-        size = 1
+        linewidth = 1  # MODIFIED: replaced size with linewidth
       )
   }
 

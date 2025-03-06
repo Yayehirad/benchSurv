@@ -18,6 +18,7 @@ benchmark_survival(
   status_col,
   time_col,
   fixed_time,
+  covariates = NULL,
   numeric_covariates = NULL,
   factor_covariates = NULL,
   highlight_center = NULL,
@@ -36,13 +37,7 @@ prepare_data(
 
 fit_cox_model(data, numeric_covariates, factor_covariates)
 
-compute_expected_survival(
-  data,
-  cox_model,
-  fixed_time,
-  numeric_covariates,
-  factor_covariates
-)
+compute_expected_survival(data, cox_model, fixed_time)
 
 compute_observed_survival(data, fixed_time)
 
@@ -70,6 +65,10 @@ create_funnel_plot(
 \item{time_col}{Name of the column with survival times.}
 
 \item{fixed_time}{Time point for survival analysis (e.g., 36 for 3 years).}
+
+\item{covariates}{Optional vector of column names for covariates used for risk adjustment.
+If provided and neither numeric_covariates nor factor_covariates are specified,
+these covariates will be treated as categorical variables.}
 
 \item{numeric_covariates}{Optional vector of column names for numeric covariates used for risk adjustment (e.g., c("Age")).}
 
