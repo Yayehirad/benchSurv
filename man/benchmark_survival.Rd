@@ -2,11 +2,6 @@
 % Please edit documentation in R/benchmark_survival.R
 \name{benchmark_survival}
 \alias{benchmark_survival}
-\alias{prepare_data}
-\alias{fit_cox_model}
-\alias{compute_expected_survival}
-\alias{compute_observed_survival}
-\alias{summarize_centers}
 \alias{compute_metrics}
 \alias{generate_funnel_limits}
 \alias{create_funnel_plot}
@@ -23,27 +18,12 @@ benchmark_survival(
   factor_covariates = NULL,
   highlight_center = NULL,
   conf_levels = c(0.8, 0.95),
-  include_legend = TRUE
+  include_legend = TRUE,
+  bayesian_adjust = FALSE,
+  bayesian_method = "empirical_bayes"
 )
 
-prepare_data(
-  data,
-  center_col,
-  status_col,
-  time_col,
-  numeric_covariates,
-  factor_covariates
-)
-
-fit_cox_model(data, numeric_covariates, factor_covariates)
-
-compute_expected_survival(data, cox_model, fixed_time)
-
-compute_observed_survival(data, fixed_time)
-
-summarize_centers(data, expected_survival, observed_survival)
-
-compute_metrics(center_summary)
+compute_metrics(center_summary, bayesian_adjust, bayesian_method)
 
 generate_funnel_limits(metrics, conf_levels)
 
@@ -66,19 +46,21 @@ create_funnel_plot(
 
 \item{fixed_time}{Time point for survival analysis (e.g., 36 for 3 years).}
 
-\item{covariates}{Optional vector of column names for covariates used for risk adjustment.
-If provided and neither numeric_covariates nor factor_covariates are specified,
-these covariates will be treated as categorical variables.}
+\item{covariates}{Optional vector of column names for covariates used for risk adjustment.}
 
-\item{numeric_covariates}{Optional vector of column names for numeric covariates used for risk adjustment (e.g., c("Age")).}
+\item{numeric_covariates}{Optional vector of column names for numeric covariates used for risk adjustment.}
 
-\item{factor_covariates}{Optional vector of column names for categorical covariates used for risk adjustment (e.g., c("ISS")).}
+\item{factor_covariates}{Optional vector of column names for categorical covariates used for risk adjustment.}
 
 \item{highlight_center}{Optional center to highlight in the plot.}
 
 \item{conf_levels}{Confidence levels for funnel plot limits.}
 
 \item{include_legend}{Logical; show legend (default TRUE).}
+
+\item{bayesian_adjust}{Logical; apply Bayesian adjustments (default FALSE).}
+
+\item{bayesian_method}{Character; "empirical_bayes" or "bayesian_hierarchical" (default "empirical_bayes").}
 }
 \value{
 A ggplot object representing the funnel plot.
