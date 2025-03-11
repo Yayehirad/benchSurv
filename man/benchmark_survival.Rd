@@ -2,10 +2,6 @@
 % Please edit documentation in R/benchmark_survival.R
 \name{benchmark_survival}
 \alias{benchmark_survival}
-\alias{prepare_data}
-\alias{compute_metrics}
-\alias{generate_funnel_limits}
-\alias{create_funnel_plot}
 \title{Benchmark Survival Analysis}
 \usage{
 benchmark_survival(
@@ -14,7 +10,6 @@ benchmark_survival(
   status_col,
   time_col,
   fixed_time,
-  covariates = NULL,
   numeric_covariates = NULL,
   factor_covariates = NULL,
   highlight_center = NULL,
@@ -22,27 +17,6 @@ benchmark_survival(
   include_legend = TRUE,
   bayesian_adjust = FALSE,
   bayesian_method = "empirical_bayes"
-)
-
-prepare_data(
-  data,
-  center_col,
-  status_col,
-  time_col,
-  numeric_covariates,
-  factor_covariates
-)
-
-compute_metrics(center_summary, bayesian_adjust, bayesian_method)
-
-generate_funnel_limits(metrics, conf_levels)
-
-create_funnel_plot(
-  metrics,
-  limits,
-  highlight = NULL,
-  conf_levels,
-  include_legend = TRUE
 )
 }
 \arguments{
@@ -56,15 +30,13 @@ create_funnel_plot(
 
 \item{fixed_time}{Time point for survival analysis (e.g., 36 for 3 years).}
 
-\item{covariates}{Optional vector of column names for covariates used for risk adjustment.}
-
 \item{numeric_covariates}{Optional vector of column names for numeric covariates used for risk adjustment.}
 
 \item{factor_covariates}{Optional vector of column names for categorical covariates used for risk adjustment.}
 
 \item{highlight_center}{Optional center to highlight in the plot.}
 
-\item{conf_levels}{Confidence levels for funnel plot limits.}
+\item{conf_levels}{Confidence levels for funnel plot limits (e.g., c(0.8, 0.95)).}
 
 \item{include_legend}{Logical; show legend (default TRUE).}
 
@@ -78,4 +50,15 @@ A ggplot object representing the funnel plot.
 \description{
 Performs survival benchmarking across centers using standardized survival ratios and funnel plots.
 }
-\keyword{internal}
+\examples{
+\dontrun{
+  data <- data.frame(
+    center = c("A", "A", "B", "B"),
+    time = c(10, 20, 15, 25),
+    status = c(1, 0, 1, 0),
+    age = c(50, 60, 55, 65)
+  )
+  benchmark_survival(data, "center", "status", "time", fixed_time = 15,
+                     numeric_covariates = "age")
+}
+}

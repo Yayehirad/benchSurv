@@ -1,20 +1,18 @@
-Encoding: UTF-8
 Package: benchSurv
-Title: Survival Benchmarking Analysis
+Title: Benchmark Survival Analysis Across Centers
 Version: 0.1.0
 Authors@R: person(given = "Yayehirad", family = "Melsew", email = "078yayu@gmail.com", role = c("aut", "cre"))
-Description: Performs standardized survival ratio analysis with funnel plot visualization.
-License: MIT + file LICENSE
-Depends: R (>= 3.5.0)
+Description: Provides tools for benchmarking survival outcomes across centers using standardized survival ratios and funnel plots, with optional Bayesian adjustments.
+Depends: R (>= 4.0.0)
 Imports: 
     survival,
-    ggplot2,
     dplyr,
-    colorspace,
-    tibble,
+    ggplot2,
     rlang,
-    stats,
-    utils,
-    lme4
+    tibble
+Suggests: 
+    brms
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
 RoxygenNote: 7.3.2
-
