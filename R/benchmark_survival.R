@@ -40,6 +40,36 @@ benchmark_survival <- function(data, center_col, status_col, time_col, fixed_tim
 
 #' @rdname benchmark_survival
 #' @keywords internal
+prepare_data <- function(data, center_col, status_col, time_col, numeric_covariates, factor_covariates) {
+  required_cols <- c(center_col, status_col, time_col, numeric_covariates, factor_covariates)
+  missing_cols <- setdiff(required_cols, names(data))
+  if (length(missing_cols) > 0) stop("Missing columns: ", paste(missing_cols, collapse = ", "))
+
+  data <- data %>%
+    rename(
+      center = !!sym(center_col),
+      status = !!sym(status_col),
+      time   = !!sym(time_col)
+    ) %>%
+    mutate(
+      status = as.integer(status),
+      time = as.numeric(time)
+    ) %>%
+    filter(
+      !is.na(time),
+      !is.na(status),
+      time > 0
+    )
+
+  if (!is.null(factor_covariates)) {
+    data <- data %>% mutate(across(all_of(factor_covariates), ~as.factor(ifelse(is.na(.), "Missing", .))))
+  }
+
+  return(data)
+}
+
+#' @rdname benchmark_survival
+#' @keywords internal
 compute_metrics <- function(center_summary, bayesian_adjust, bayesian_method) {
   center_summary <- center_summary %>%
     mutate(

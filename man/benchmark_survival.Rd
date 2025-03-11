@@ -2,6 +2,7 @@
 % Please edit documentation in R/benchmark_survival.R
 \name{benchmark_survival}
 \alias{benchmark_survival}
+\alias{prepare_data}
 \alias{compute_metrics}
 \alias{generate_funnel_limits}
 \alias{create_funnel_plot}
@@ -21,6 +22,15 @@ benchmark_survival(
   include_legend = TRUE,
   bayesian_adjust = FALSE,
   bayesian_method = "empirical_bayes"
+)
+
+prepare_data(
+  data,
+  center_col,
+  status_col,
+  time_col,
+  numeric_covariates,
+  factor_covariates
 )
 
 compute_metrics(center_summary, bayesian_adjust, bayesian_method)
