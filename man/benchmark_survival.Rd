@@ -2,6 +2,14 @@
 % Please edit documentation in R/benchmark_survival.R
 \name{benchmark_survival}
 \alias{benchmark_survival}
+\alias{prepare_data}
+\alias{fit_cox_model}
+\alias{compute_expected_survival}
+\alias{compute_observed_survival}
+\alias{summarize_centers}
+\alias{compute_metrics}
+\alias{generate_funnel_limits}
+\alias{create_funnel_plot}
 \title{Benchmark Survival Analysis}
 \usage{
 benchmark_survival(
@@ -10,53 +18,92 @@ benchmark_survival(
   status_col,
   time_col,
   fixed_time,
-  numeric_covariates = NULL,
-  factor_covariates = NULL,
   highlight_center = NULL,
   conf_levels = c(0.8, 0.95),
+  numeric_covariates = NULL,
+  factor_covariates = NULL,
   include_legend = TRUE,
-  bayesian_adjust = FALSE
+  stop_on_ph_violation = FALSE
+)
+
+prepare_data(
+  data,
+  center_col,
+  status_col,
+  time_col,
+  numeric_covariates,
+  factor_covariates
+)
+
+fit_cox_model(data, covariates)
+
+compute_expected_survival(data, cox_model, fixed_time, covariates)
+
+compute_observed_survival(data, fixed_time)
+
+summarize_centers(data, expected_survival, observed_survival)
+
+compute_metrics(center_summary)
+
+generate_funnel_limits(metrics, conf_levels)
+
+create_funnel_plot(
+  metrics,
+  limits,
+  highlight = NULL,
+  conf_levels,
+  include_legend = TRUE
 )
 }
 \arguments{
 \item{data}{A data frame containing survival data.}
 
-\item{center_col}{Name of the column with center identifiers.}
+\item{center_col}{Name of the column with center identifiers (e.g., "Sitename").}
 
-\item{status_col}{Name of the column with event status (0 = censored, 1 = event).}
+\item{status_col}{Name of the column with event status (0 = censored, 1 = event, e.g., "Death").}
 
-\item{time_col}{Name of the column with survival times.}
+\item{time_col}{Name of the column with survival times (e.g., "DTime").}
 
-\item{fixed_time}{Time point for survival analysis (e.g., 36 for 3 years).}
+\item{fixed_time}{Time point for survival analysis (e.g., 36 for 36 months).}
 
-\item{numeric_covariates}{Optional vector of column names for numeric covariates used for risk adjustment.}
+\item{highlight_center}{Optional center to highlight in the plot (e.g., "SiteA").}
 
-\item{factor_covariates}{Optional vector of column names for categorical covariates used for risk adjustment.}
+\item{conf_levels}{Confidence levels for funnel plot limits (e.g., c(0.8, 0.95), default c(0.8, 0.95)).}
 
-\item{highlight_center}{Optional center to highlight in the plot.}
+\item{numeric_covariates}{Optional vector of column names for numeric covariates (e.g., c("Age_centered")). Set to NULL for no covariates.}
 
-\item{conf_levels}{Confidence levels for funnel plot limits (e.g., c(0.8, 0.95)).}
+\item{factor_covariates}{Optional vector of column names for factor covariates (e.g., c("ISS_cat")). Set to NULL for no covariates.}
 
 \item{include_legend}{Logical; show legend (default TRUE).}
 
-\item{bayesian_adjust}{Logical; apply Empirical Bayes adjustments (default FALSE).}
+\item{stop_on_ph_violation}{Logical; stop if PH assumption is violated (default FALSE). Ignored when no covariates are included.}
 }
 \value{
 A ggplot object representing the funnel plot.
 }
 \description{
-Performs survival benchmarking across centers using standardized survival ratios and funnel plots,
-with optional Empirical Bayes adjustments.
+Performs survival benchmarking across centers using standardized survival ratios and funnel plots.
 }
 \examples{
 \dontrun{
-  data <- data.frame(
-    center = c("A", "A", "B", "B"),
-    time = c(10, 20, 15, 25),
-    status = c(1, 0, 1, 0),
-    age = c(50, 60, 55, 65)
+  test_data <- data.frame(
+    Sitename = rep(c("SiteA", "SiteB"), each = 50),
+    Death = rbinom(100, 1, 0.3),
+    DTime = rexp(100, rate = 0.1)
   )
-  benchmark_survival(data, "center", "status", "time", fixed_time = 15,
-                     numeric_covariates = "age", bayesian_adjust = TRUE)
+  benchmark_plot3 <- benchmark_survival(
+    data = test_data,
+    center_col = "Sitename",
+    status_col = "Death",
+    time_col = "DTime",
+    fixed_time = 36,
+    numeric_covariates = NULL,
+    factor_covariates = NULL,
+    highlight_center = "SiteA",
+    conf_levels = c(0.8, 0.95),
+    include_legend = TRUE
+  )
+  print(benchmark_plot3)
 }
 }
+\keyword{internal}
