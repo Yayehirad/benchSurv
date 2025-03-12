@@ -79,7 +79,10 @@ create_funnel_plot(
 \item{stop_on_ph_violation}{Logical; stop if PH assumption is violated (default FALSE). Ignored when no covariates are included.}
 }
 \value{
-A ggplot object representing the funnel plot.
+A list containing:
+  \item{plot}{A ggplot object representing the funnel plot.}
+  \item{metrics}{A data frame with center-level metrics (e.g., SSR, precision).}
+  \item{funnel_limits}{A data frame with control limits at each precision level.}
 }
 \description{
 Performs survival benchmarking across centers using standardized survival ratios and funnel plots.
@@ -91,7 +94,7 @@ Performs survival benchmarking across centers using standardized survival ratios
     Death = rbinom(100, 1, 0.3),
     DTime = rexp(100, rate = 0.1)
   )
-  benchmark_plot3 <- benchmark_survival(
+  result <- benchmark_survival(
     data = test_data,
     center_col = "Sitename",
     status_col = "Death",
@@ -103,7 +106,9 @@ Performs survival benchmarking across centers using standardized survival ratios
     conf_levels = c(0.8, 0.95),
     include_legend = TRUE
   )
-  print(benchmark_plot3)
+  print(result$plot)
+  print(result$metrics)
+  print(result$funnel_limits)
 }
 }
 \keyword{internal}

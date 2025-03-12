@@ -13,7 +13,10 @@
 #' @param factor_covariates Optional vector of column names for factor covariates (e.g., c("ISS_cat")). Set to NULL for no covariates.
 #' @param include_legend Logical; show legend (default TRUE).
 #' @param stop_on_ph_violation Logical; stop if PH assumption is violated (default FALSE). Ignored when no covariates are included.
-#' @return A ggplot object representing the funnel plot.
+#' @return A list containing:
+#'   \item{plot}{A ggplot object representing the funnel plot.}
+#'   \item{metrics}{A data frame with center-level metrics (e.g., SSR, precision).}
+#'   \item{funnel_limits}{A data frame with control limits at each precision level.}
 #' @export
 #' @importFrom dplyr %>% mutate group_by summarise left_join filter rename group_modify ungroup n
 #' @importFrom survival coxph basehaz survfit Surv
@@ -29,7 +32,7 @@
 #'     Death = rbinom(100, 1, 0.3),
 #'     DTime = rexp(100, rate = 0.1)
 #'   )
-#'   benchmark_plot3 <- benchmark_survival(
+#'   result <- benchmark_survival(
 #'     data = test_data,
 #'     center_col = "Sitename",
 #'     status_col = "Death",
@@ -41,7 +44,9 @@
 #'     conf_levels = c(0.8, 0.95),
 #'     include_legend = TRUE
 #'   )
-#'   print(benchmark_plot3)
+#'   print(result$plot)
+#'   print(result$metrics)
+#'   print(result$funnel_limits)
 #' }
 
 benchmark_survival <- function(data, center_col, status_col, time_col, fixed_time,
@@ -100,7 +105,12 @@ benchmark_survival <- function(data, center_col, status_col, time_col, fixed_tim
   message("Score (Log-Rank) Test:")
   print(cox_fit_summary$sctest)
 
-  return(plot)
+  # Return a list with plot, metrics, and funnel_limits
+  return(list(
+    plot = plot,
+    metrics = metrics,
+    funnel_limits = funnel_limits
+  ))
 }
 
 #' @rdname benchmark_survival
