@@ -2,16 +2,11 @@
 % Please edit documentation in R/benchmark_survival.R
 \name{compute_metrics}
 \alias{compute_metrics}
-\title{Compute Survival Metrics with Optional Bayesian Adjustment}
+\title{Compute Survival Metrics with Optional Empirical Bayes Adjustment}
 \usage{
-compute_metrics(
-  center_summary,
-  bayesian_adjust,
-  bayesian_method,
-  bayesian_model = NULL
-)
+compute_metrics(center_summary, bayesian_adjust)
 }
 \description{
-Compute Survival Metrics with Optional Bayesian Adjustment
+Compute Survival Metrics with Optional Empirical Bayes Adjustment
 }
 \keyword{internal}

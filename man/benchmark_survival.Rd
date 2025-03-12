@@ -15,8 +15,7 @@ benchmark_survival(
   highlight_center = NULL,
   conf_levels = c(0.8, 0.95),
   include_legend = TRUE,
-  bayesian_adjust = FALSE,
-  bayesian_method = "empirical_bayes"
+  bayesian_adjust = FALSE
 )
 }
 \arguments{
@@ -40,15 +39,14 @@ benchmark_survival(
 
 \item{include_legend}{Logical; show legend (default TRUE).}
 
-\item{bayesian_adjust}{Logical; apply Bayesian adjustments (default FALSE).}
-
-\item{bayesian_method}{Character; "empirical_bayes" or "bayesian_hierarchical" (default "empirical_bayes").}
+\item{bayesian_adjust}{Logical; apply Empirical Bayes adjustments (default FALSE).}
 }
 \value{
 A ggplot object representing the funnel plot.
 }
 \description{
-Performs survival benchmarking across centers using standardized survival ratios and funnel plots.
+Performs survival benchmarking across centers using standardized survival ratios and funnel plots,
+with optional Empirical Bayes adjustments.
 }
 \examples{
 \dontrun{
@@ -59,6 +57,6 @@ Performs survival benchmarking across centers using standardized survival ratios
     age = c(50, 60, 55, 65)
   )
   benchmark_survival(data, "center", "status", "time", fixed_time = 15,
-                     numeric_covariates = "age")
+                     numeric_covariates = "age", bayesian_adjust = TRUE)
 }
 }

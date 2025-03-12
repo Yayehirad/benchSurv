@@ -1,6 +1,7 @@
 #' Benchmark Survival Analysis
 #'
-#' Performs survival benchmarking across centers using standardized survival ratios and funnel plots.
+#' Performs survival benchmarking across centers using standardized survival ratios and funnel plots,
+#' with optional Empirical Bayes adjustments.
 #'
 #' @param data A data frame containing survival data.
 #' @param center_col Name of the column with center identifiers.
@@ -12,8 +13,7 @@
 #' @param highlight_center Optional center to highlight in the plot.
 #' @param conf_levels Confidence levels for funnel plot limits (e.g., c(0.8, 0.95)).
 #' @param include_legend Logical; show legend (default TRUE).
-#' @param bayesian_adjust Logical; apply Bayesian adjustments (default FALSE).
-#' @param bayesian_method Character; "empirical_bayes" or "bayesian_hierarchical" (default "empirical_bayes").
+#' @param bayesian_adjust Logical; apply Empirical Bayes adjustments (default FALSE).
 #' @return A ggplot object representing the funnel plot.
 #' @importFrom stats as.formula predict qnorm var
 #' @importFrom dplyr %>% group_by group_modify summarise ungroup left_join mutate filter across all_of
@@ -30,28 +30,21 @@
 #'     age = c(50, 60, 55, 65)
 #'   )
 #'   benchmark_survival(data, "center", "status", "time", fixed_time = 15,
-#'                      numeric_covariates = "age")
+#'                      numeric_covariates = "age", bayesian_adjust = TRUE)
 #' }
 benchmark_survival <- function(data, center_col, status_col, time_col, fixed_time,
                                numeric_covariates = NULL, factor_covariates = NULL,
                                highlight_center = NULL, conf_levels = c(0.8, 0.95),
                                include_legend = TRUE,
-                               bayesian_adjust = FALSE, bayesian_method = "empirical_bayes") {
+                               bayesian_adjust = FALSE) {
   # Check dependencies
   if (!requireNamespace("survival", quietly = TRUE)) stop("Package 'survival' is required.")
   if (!requireNamespace("dplyr", quietly = TRUE)) stop("Package 'dplyr' is required.")
   if (!requireNamespace("ggplot2", quietly = TRUE)) stop("Package 'ggplot2' is required.")
-  if (bayesian_adjust && bayesian_method == "bayesian_hierarchical" &&
-      !requireNamespace("brms", quietly = TRUE)) {
-    stop("Package 'brms' is required for bayesian_hierarchical method.")
-  }
 
   # Input validation
   if (!is.data.frame(data)) stop("data must be a data frame")
   if (!is.numeric(fixed_time) || fixed_time <= 0) stop("fixed_time must be a positive numeric value")
-  if (!bayesian_method %in% c("empirical_bayes", "bayesian_hierarchical")) {
-    stop("bayesian_method must be 'empirical_bayes' or 'bayesian_hierarchical'")
-  }
 
   # Process data and fit models
   prepared_data <- prepare_data(data, center_col, status_col, time_col, numeric_covariates, factor_covariates)
@@ -60,16 +53,9 @@ benchmark_survival <- function(data, center_col, status_col, time_col, fixed_tim
   observed_survival <- compute_observed_survival(prepared_data, fixed_time)
   center_summary <- summarize_centers(prepared_data, expected_survival, observed_survival)
 
-  # Bayesian hierarchical adjustment (if applicable)
-  if (bayesian_adjust && bayesian_method == "bayesian_hierarchical") {
-    bayesian_model <- fit_bayesian_hierarchical(prepared_data)
-    metrics <- compute_metrics(center_summary, bayesian_adjust, bayesian_method, bayesian_model)
-  } else {
-    metrics <- compute_metrics(center_summary, bayesian_adjust, bayesian_method)
-  }
-
+  metrics <- compute_metrics(center_summary, bayesian_adjust)
   funnel_limits <- generate_funnel_limits(metrics, conf_levels)
-  plot <- create_funnel_plot(metrics, funnel_limits, highlight_center, conf_levels, include_legend)
+  plot <- create_funnel_plot(metrics, funnel_limits, highlight_center, conf_levels, include_legend, bayesian_adjust)
 
   return(plot)
 }
@@ -184,22 +170,9 @@ summarize_centers <- function(data, expected_survival, observed_survival) {
     dplyr::mutate(O_S = S_obs * n_patients)
 }
 
-#' Fit Bayesian Hierarchical Model
+#' Compute Survival Metrics with Optional Empirical Bayes Adjustment
 #' @keywords internal
-fit_bayesian_hierarchical <- function(data) {
-  brms::brm(
-    formula = Surv(time, status) ~ 1 + (1 | center),
-    data = data,
-    family = brms::weibull(),
-    prior = c(brms::prior(brms::normal(0, 5), class = "Intercept")),
-    chains = 4, iter = 2000, warmup = 500, cores = 4,
-    silent = 2  # Suppress verbose output
-  )
-}
-
-#' Compute Survival Metrics with Optional Bayesian Adjustment
-#' @keywords internal
-compute_metrics <- function(center_summary, bayesian_adjust, bayesian_method, bayesian_model = NULL) {
+compute_metrics <- function(center_summary, bayesian_adjust) {
   center_summary <- center_summary %>%
     dplyr::mutate(
       SSR = O_S / E_S,
@@ -213,21 +186,12 @@ compute_metrics <- function(center_summary, bayesian_adjust, bayesian_method, ba
     )
 
   if (bayesian_adjust) {
-    if (bayesian_method == "empirical_bayes") {
-      global_mean <- mean(center_summary$SSR, na.rm = TRUE)
-      global_var <- stats::var(center_summary$SSR, na.rm = TRUE)
-      center_summary <- center_summary %>%
-        dplyr::mutate(
-          bayes_SSR = (precision * SSR + global_var * global_mean) / (precision + global_var)
-        )
-    } else if (bayesian_method == "bayesian_hierarchical") {
-      if (is.null(bayesian_model)) stop("Bayesian model required for hierarchical method.")
-      center_effects <- brms::ranef(bayesian_model)$center[, "Estimate", "Intercept"]
-      center_summary <- center_summary %>%
-        dplyr::mutate(
-          bayes_SSR = SSR * exp(center_effects[as.character(center)])
-        )
-    }
+    global_mean <- mean(center_summary$SSR, na.rm = TRUE)
+    global_var <- stats::var(center_summary$SSR, na.rm = TRUE)
+    center_summary <- center_summary %>%
+      dplyr::mutate(
+        bayes_SSR = (precision * SSR + global_var * global_mean) / (precision + global_var)
+      )
   } else {
     center_summary <- center_summary %>% dplyr::mutate(bayes_SSR = SSR)
   }
@@ -256,7 +220,14 @@ generate_funnel_limits <- function(metrics, conf_levels) {
 
 #' Create Funnel Plot
 #' @keywords internal
-create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, include_legend = TRUE) {
+create_funnel_plot <- function(metrics, limits, highlight = NULL,
+                               conf_levels, include_legend = TRUE, bayesian_adjust = FALSE) {
+  y_label <- if (bayesian_adjust) {
+    "Empirical Bayes Adjusted Standardized Survival Ratio (O/E)"
+  } else {
+    "Standardized Survival Ratio (O/E)"
+  }
+
   gg <- ggplot2::ggplot() +
     ggplot2::geom_line(data = limits, ggplot2::aes(x = precision, y = upper_0.95), linetype = "dashed", color = "red") +
     ggplot2::geom_line(data = limits, ggplot2::aes(x = precision, y = lower_0.95), linetype = "dashed", color = "red") +
@@ -269,12 +240,24 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, i
                         shape = 21, size = 3) +
     ggplot2::labs(
       x = "Precision (E_S^2 / V_S)",
-      y = "Bayesian-Adjusted Standardized Survival Ratio (O/E)",
+      y = y_label,
       title = "Funnel Plot of Survival Ratios by Center"
     ) +
     ggplot2::scale_color_manual(values = c("highlighted" = "red", "normal" = "black"), guide = "none") +
     ggplot2::theme_minimal()
-
+  if (!is.null(highlight)) {
+    highlight_data <- metrics[metrics$center == highlight, ]
+    if (nrow(highlight_data) > 0) {
+      gg <- gg + ggplot2::geom_text(
+        data = highlight_data,
+        ggplot2::aes(x = precision, y = bayes_SSR, label = center),
+        color = "red",
+        hjust = -0.2,
+        vjust = 0.5,
+        size = 3.5
+      )
+    }
+  }
   if (!include_legend) gg <- gg + ggplot2::theme(legend.position = "none")
   return(gg)
 }

@@ -9,7 +9,8 @@ create_funnel_plot(
   limits,
   highlight = NULL,
   conf_levels,
-  include_legend = TRUE
+  include_legend = TRUE,
+  bayesian_adjust = FALSE
 )
 }
 \description{
