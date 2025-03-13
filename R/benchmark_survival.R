@@ -13,9 +13,10 @@
 #' @param factor_covariates Optional vector of column names for factor covariates (e.g., c("ISS_cat")). Set to NULL for no covariates.
 #' @param include_legend Logical; show legend (default TRUE).
 #' @param stop_on_ph_violation Logical; stop if PH assumption is violated (default FALSE). Ignored when no covariates are included.
+#' @param variance_method Character; method to estimate variance for control limits. Options are "greenwood" (default, uses Greenwood variance from Kaplan-Meier estimator) or "scaling" (uses Greenwood variance with empirical scaling factors).
 #' @return A list containing:
 #'   \item{plot}{A ggplot object representing the funnel plot.}
-#'   \item{metrics}{A data frame with center-level metrics (e.g., SSR, precision).}
+#'   \item{metrics}{A data frame with center-level metrics (e.g., SSR, precision, Z).}
 #'   \item{funnel_limits}{A data frame with control limits at each precision level.}
 #' @export
 #' @importFrom dplyr %>% mutate group_by summarise left_join filter rename group_modify ungroup n
@@ -32,7 +33,7 @@
 #'     Death = rbinom(100, 1, 0.3),
 #'     DTime = rexp(100, rate = 0.1)
 #'   )
-#'   result <- benchmark_survival(
+#'   result_default <- benchmark_survival(
 #'     data = test_data,
 #'     center_col = "Sitename",
 #'     status_col = "Death",
@@ -43,20 +44,34 @@
 #'     highlight_center = "SiteA",
 #'     conf_levels = c(0.8, 0.95),
 #'     include_legend = TRUE
+#'   )  # Uses "greenwood" by default
+#'   result_scaling <- benchmark_survival(
+#'     data = test_data,
+#'     center_col = "Sitename",
+#'     status_col = "Death",
+#'     time_col = "DTime",
+#'     fixed_time = 36,
+#'     numeric_covariates = NULL,
+#'     factor_covariates = NULL,
+#'     highlight_center = "SiteA",
+#'     conf_levels = c(0.8, 0.95),
+#'     include_legend = TRUE,
+#'     variance_method = "scaling"
 #'   )
-#'   print(result$plot)
-#'   print(result$metrics)
-#'   print(result$funnel_limits)
+#'   print(result_default$plot)
+#'   print(result_scaling$plot)
 #' }
 
 benchmark_survival <- function(data, center_col, status_col, time_col, fixed_time,
                                highlight_center = NULL, conf_levels = c(0.8, 0.95),
                                numeric_covariates = NULL, factor_covariates = NULL,
-                               include_legend = TRUE, stop_on_ph_violation = FALSE) {
+                               include_legend = TRUE, stop_on_ph_violation = FALSE,
+                               variance_method = c("greenwood", "scaling")) {
   # Input validation
   if (!is.data.frame(data)) stop("data must be a data frame")
   if (!is.numeric(fixed_time) || fixed_time <= 0) stop("fixed_time must be a positive numeric value")
   if (!is.null(conf_levels) && !all(conf_levels > 0 & conf_levels < 1)) stop("conf_levels must be between 0 and 1")
+  variance_method <- match.arg(variance_method)
 
   # Processing pipeline
   prepared_data <- prepare_data(data, center_col, status_col, time_col, numeric_covariates, factor_covariates)
@@ -82,10 +97,10 @@ benchmark_survival <- function(data, center_col, status_col, time_col, fixed_tim
   }
 
   expected_survival <- compute_expected_survival(prepared_data, cox_model, fixed_time, c(numeric_covariates, factor_covariates))
-  observed_survival <- compute_observed_survival(prepared_data, fixed_time)
-  center_summary <- summarize_centers(prepared_data, expected_survival, observed_survival)
-  metrics <- compute_metrics(center_summary)
-  funnel_limits <- generate_funnel_limits(metrics, conf_levels)
+  observed_survival <- compute_observed_survival(prepared_data, fixed_time, variance_method)
+  center_summary <- summarize_centers(prepared_data, expected_survival, observed_survival, variance_method)
+  metrics <- compute_metrics(center_summary, variance_method)
+  funnel_limits <- generate_funnel_limits(metrics, conf_levels, variance_method)
 
   if (is.null(funnel_limits)) {
     stop("Unable to generate funnel plot limits due to invalid precision values.")
@@ -214,7 +229,7 @@ compute_expected_survival <- function(data, cox_model, fixed_time, covariates) {
 
 #' @rdname benchmark_survival
 #' @keywords internal
-compute_observed_survival <- function(data, fixed_time) {
+compute_observed_survival <- function(data, fixed_time, variance_method) {
   data %>%
     group_by(center) %>%
     group_modify(~ {
@@ -226,14 +241,20 @@ compute_observed_survival <- function(data, fixed_time) {
       } else {
         fit$surv[idx]
       }
-      tibble(S_obs = S_obs)
+      # Greenwood variance for S_obs
+      var_S_obs <- if (idx == 0 || length(fit$std.err) == 0) {
+        0  # No variance if no data
+      } else {
+        (fit$std.err[idx] * S_obs)^2  # Variance of S_obs using Greenwood formula
+      }
+      tibble(S_obs = S_obs, var_S_obs = var_S_obs)
     }) %>%
     ungroup()
 }
 
 #' @rdname benchmark_survival
 #' @keywords internal
-summarize_centers <- function(data, expected_survival, observed_survival) {
+summarize_centers <- function(data, expected_survival, observed_survival, variance_method) {
   patient_agg <- expected_survival %>%
     group_by(center) %>%
     summarise(
@@ -247,30 +268,33 @@ summarize_centers <- function(data, expected_survival, observed_survival) {
     summarise(n_patients = n(), .groups = "drop") %>%
     left_join(patient_agg, by = "center") %>%
     left_join(observed_survival, by = "center") %>%
-    mutate(O_S = S_obs * n_patients)
+    mutate(
+      O_S = S_obs * n_patients,
+      V_O_S = var_S_obs * (n_patients^2)  # Always use Greenwood variance for O_S
+    )
 }
 
 #' @rdname benchmark_survival
 #' @keywords internal
-compute_metrics <- function(center_summary) {
+compute_metrics <- function(center_summary, variance_method) {
   center_summary %>%
     mutate(
       SSR = O_S / E_S,
-      Z = (O_S - E_S) / sqrt(V_S),
-      precision = E_S^2 / V_S
+      Z = (O_S - E_S) / sqrt(V_O_S),
+      precision = E_S^2 / V_O_S
     ) %>%
     filter(
       is.finite(SSR),
       is.finite(precision),
       precision > 0,
       !is.na(E_S) & E_S > 0,
-      !is.na(V_S) & V_S > 0
+      !is.na(V_O_S) & V_O_S > 0
     )
 }
 
 #' @rdname benchmark_survival
 #' @keywords internal
-generate_funnel_limits <- function(metrics, conf_levels) {
+generate_funnel_limits <- function(metrics, conf_levels, variance_method) {
   # Check for valid precision values
   valid_precision <- metrics$precision[!is.na(metrics$precision) & is.finite(metrics$precision)]
   if (length(valid_precision) < 2) {
@@ -286,10 +310,22 @@ generate_funnel_limits <- function(metrics, conf_levels) {
 
   limits <- tibble(precision = precision_seq)
 
-  for (conf in conf_levels) {
+  if (variance_method == "scaling") {
+    # Apply scaling factors to adjust control limits
+    scaling_80 <- 0.654  # Adjusted for 0.0503 observed vs 0.2 expected
+    scaling_95 <- 0.781  # Adjusted for 0.0121 observed vs 0.05 expected
+  } else {
+    scaling_80 <- 1
+    scaling_95 <- 1
+  }
+
+  for (i in seq_along(conf_levels)) {
+    conf <- conf_levels[i]
     z <- qnorm((1 + conf) / 2)
-    limits[[paste0("upper_", conf)]] <- 1 + z / sqrt(precision_seq)
-    limits[[paste0("lower_", conf)]] <- pmax(0, 1 - z / sqrt(precision_seq))
+    scaling <- if (conf == 0.8) scaling_80 else if (conf == 0.95) scaling_95 else 1
+    z_adjusted <- z * scaling
+    limits[[paste0("upper_", conf)]] <- 1 + z_adjusted / sqrt(precision_seq)
+    limits[[paste0("lower_", conf)]] <- pmax(0, 1 - z_adjusted / sqrt(precision_seq))
   }
 
   limits
@@ -391,5 +427,5 @@ create_funnel_plot <- function(metrics, limits, highlight = NULL, conf_levels, i
 utils::globalVariables(c(
   ".", "center", "status", "time", "S_i", "n_patients",
   "E_S", "V_S", "O_S", "SSR", "Z", "precision", "S_obs",
-  "conf", "predict"
+  "conf", "predict", "var_S_obs", "V_O_S"
 ))

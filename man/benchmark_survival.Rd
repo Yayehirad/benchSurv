@@ -23,7 +23,8 @@ benchmark_survival(
   numeric_covariates = NULL,
   factor_covariates = NULL,
   include_legend = TRUE,
-  stop_on_ph_violation = FALSE
+  stop_on_ph_violation = FALSE,
+  variance_method = c("greenwood", "scaling")
 )
 
 prepare_data(
@@ -39,13 +40,13 @@ fit_cox_model(data, covariates)
 
 compute_expected_survival(data, cox_model, fixed_time, covariates)
 
-compute_observed_survival(data, fixed_time)
+compute_observed_survival(data, fixed_time, variance_method)
 
-summarize_centers(data, expected_survival, observed_survival)
+summarize_centers(data, expected_survival, observed_survival, variance_method)
 
-compute_metrics(center_summary)
+compute_metrics(center_summary, variance_method)
 
-generate_funnel_limits(metrics, conf_levels)
+generate_funnel_limits(metrics, conf_levels, variance_method)
 
 create_funnel_plot(
   metrics,
@@ -77,11 +78,13 @@ create_funnel_plot(
 \item{include_legend}{Logical; show legend (default TRUE).}
 
 \item{stop_on_ph_violation}{Logical; stop if PH assumption is violated (default FALSE). Ignored when no covariates are included.}
+
+\item{variance_method}{Character; method to estimate variance for control limits. Options are "greenwood" (default, uses Greenwood variance from Kaplan-Meier estimator) or "scaling" (uses Greenwood variance with empirical scaling factors).}
 }
 \value{
 A list containing:
   \item{plot}{A ggplot object representing the funnel plot.}
-  \item{metrics}{A data frame with center-level metrics (e.g., SSR, precision).}
+  \item{metrics}{A data frame with center-level metrics (e.g., SSR, precision, Z).}
   \item{funnel_limits}{A data frame with control limits at each precision level.}
 }
 \description{
@@ -94,7 +97,7 @@ Performs survival benchmarking across centers using standardized survival ratios
     Death = rbinom(100, 1, 0.3),
     DTime = rexp(100, rate = 0.1)
   )
-  result <- benchmark_survival(
+  result_default <- benchmark_survival(
     data = test_data,
     center_col = "Sitename",
     status_col = "Death",
@@ -105,10 +108,22 @@ Performs survival benchmarking across centers using standardized survival ratios
     highlight_center = "SiteA",
     conf_levels = c(0.8, 0.95),
     include_legend = TRUE
+  )  # Uses "greenwood" by default
+  result_scaling <- benchmark_survival(
+    data = test_data,
+    center_col = "Sitename",
+    status_col = "Death",
+    time_col = "DTime",
+    fixed_time = 36,
+    numeric_covariates = NULL,
+    factor_covariates = NULL,
+    highlight_center = "SiteA",
+    conf_levels = c(0.8, 0.95),
+    include_legend = TRUE,
+    variance_method = "scaling"
   )
-  print(result$plot)
-  print(result$metrics)
-  print(result$funnel_limits)
+  print(result_default$plot)
+  print(result_scaling$plot)
 }
 }
 \keyword{internal}
